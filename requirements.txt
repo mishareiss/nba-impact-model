@@ -1,14 +1,18 @@
-certifi==2026.2.25
-charset-normalizer==3.4.7
-idna==3.11
-nba_api==1.11.4
-numpy==2.4.4
-pandas==3.0.2
-psycopg2-binary==2.9.11
-python-dateutil==2.9.0.post0
-python-dotenv==1.2.2
+# NBA data
+nba-api==1.11.4
 requests==2.33.1
-six==1.17.0
-SQLAlchemy==2.0.49
-typing_extensions==4.15.0
-urllib3==2.6.3
+# Database
+sqlalchemy==2.0.48
+psycopg2-binary==2.9.11
+python-dotenv==1.2.2
+# Data processing
+pandas==3.0.2
+numpy==2.4.4
+pyarrow==24.0.0
+# ML
+scikit-learn==1.8.0
+xgboost  # version to be pinned after install
+# Visualization
+matplotlib==3.10.8
+# Utilities
+tqdm==4.67.3
