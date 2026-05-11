@@ -1,0 +1,19 @@
+# Environment
+.env
+
+# Generated data
+data/shots_features.parquet
+ingestion.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Conda/pip
+*.egg-info/
+
+# Models (large binary artifacts)
+models/*.pkl
+models/*.joblib
