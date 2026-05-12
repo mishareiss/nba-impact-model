@@ -11,7 +11,7 @@ numpy==2.4.4
 pyarrow==24.0.0
 # ML
 scikit-learn==1.8.0
-xgboost  # version to be pinned after install
+xgboost==3.2.0
 # Visualization
 matplotlib==3.10.8
 # Utilities
