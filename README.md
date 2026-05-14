@@ -40,6 +40,9 @@ python src/features/build_features.py
 
 # Train xShot model
 python src/models/train_xshot.py
+
+# Generate xShot predictions → writes to shot_predictions table
+python src/models/predict.py
 ```
 
 ## Project Status
@@ -50,6 +53,6 @@ python src/models/train_xshot.py
 |`shots` materialized view|✅ Complete|
 |Feature engineering|✅ Complete|
 |xShot model v1 training|✅ Complete|
-|xShot prediction generation|🔄 Next|
-|Stint data + xRAPM|📋 Planned|
+|xShot prediction generation|✅ Complete|
+|Stint data + xRAPM|🔄 Next|
 |Dashboard|📋 Planned|

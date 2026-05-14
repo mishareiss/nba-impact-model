@@ -13,7 +13,7 @@ Predict the probability that any given field goal attempt is made, given only pr
 - Highly interpretable via feature importance
 - Strong baseline for tabular sports data
 
-Alternatives considered: logistic regression (too simple, can't model zone x shot_type interactons), neural nets (harder to interpret, overkill for this data volume and feature set at v1).
+Alternatives considered: logistic regression (too simple, can't model zone x shot_type interactions), neural nets (harder to interpret, overkill for this data volume and feature set at v1).
 
 ## Training Setup
 
@@ -30,7 +30,7 @@ Alternatives considered: logistic regression (too simple, can't model zone x sho
 
 ## Temporal Train/Test Split
 
-**Critical design decision:** The split is temporal, not random. Randoms splits would leak future information into training.
+**Critical design decision:** The split is temporal, not random. Random splits would leak future information into training.
 
 - **Train:** 2014-15 → 2022-23 (1,995,322 shots)
 - **Test:** 2023-24 → 2024-25 (466,446 shots)
@@ -91,7 +91,7 @@ The baseline is a naive model that always predicts the mean FG% (≈46.2%).
 **Lowest importance:**
 - `is_overtime`, `is_playoffs`, `shot_angle`, `period` - nearly zero contribution.
 
-**Interpretation:** Game context features add virtually nothing to shot quality prediction. Whether a shot is taken in overtime or the pllayoffs does not meaningfully change its probability of going in - players don't shoot fundamentally differently in those situations after controlling for shot type and location.
+**Interpretation:** Game context features add virtually nothing to shot quality prediction. Whether a shot is taken in overtime or the playoffs does not meaningfully change its probability of going in - players don't shoot fundamentally differently in those situations after controlling for shot type and location.
 
 **Action:** These features are not wrong to include (they don't hurt), but v2 could drop them to reduce model complexity.
 
@@ -103,10 +103,11 @@ The calibration curve closely follows the perfect diagonal with no systematic bi
 
 ## Known Limitations
 
-1. **No defender context.** The model has no information about shot contest level. A wide-open 3 and a heavily-contested 3 get the same features (same_zone, same is_three=1). This is the single biggest source of unexplained variance.
+1. **No defender context.** The model has no information about shot contest level. A wide-open 3 and a heavily-contested 3 get the same features (shot_zone, same_zone, is_three=1). This is the single biggest source of unexplained variance.
 2. **No shooter identity.** Some players shoot above their shot quality expectation consistently (e.g., elite shooters). The model cannot distinguish these - this is a feature, not a bug, for the intended use case (measuring shot quality independent of shooter skill).
 3. **Temporal drift.** The NBA has changed significantly since 2014-15 (3-point revolution). The model trains on 9 seasons of history, which may dampen recent 3-point shot difficulty changes.
 4. **`is_dunk` dominance.** 35% of all feature importance rests on one feature. This means for non-dunk shots, the model is working harder. Inspect non-dunk shot predictions separately in v2.
+5. **Playoffs systematically underestimated.** Observed in production across all 11 seasons: actual playoff FG% is consistently ~1-2.5% below predicted xShot. Playoff defense is more intense and contested, but `is_playoffs` had near-zero feature importance, meaning the model does not adjust for playoff context. This does not affect player rankings within a season but introduces a small systematic bias when comparing playoff vs regular season xShot values directly.
 
 ## V2 Improvement Candidates
 
@@ -117,6 +118,7 @@ The calibration curve closely follows the perfect diagonal with no systematic bi
 - [ ] **Separate dunk model** - dunks are nearly deterministic; removing them from the main model may improve mid-range/3-point calibration
 - [ ] **Interaction features** - `is_driving × shot_distance`, `clock_seconds × shot_distance`
 - [ ] **Shot type fine-graining** - "Driving Floating Jump Shot" and "Step Back Jump Shot" both map to jump shots; finer encoding may help
+- [ ] **Playoff-specific adjustment** - small additive correction to xShot in playoff games (~-0.015 based on observed bias), or train a separate model on playoff data only
 
 ## Artifacts
 
