@@ -116,8 +116,8 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 ID_COLS = [
-    'game_id', 'action_id', 'season', 
-    'person_id', 'player_name', 'team_tricode', 
+    'game_id', 'action_id', 'season', 'season_type', 
+    'person_id', 'team_id', 'player_name', 'team_tricode', 
     'shot_type'
 ]
 
@@ -197,6 +197,6 @@ def main():
     logger.info("\nShot type distribution:")
     for shot_type, count in out['shot_type'].value_counts().items():
         logger.info(f"  {shot_type:15s} {count:>8,}")
-        
+
 if __name__ == "__main__":
     main()
