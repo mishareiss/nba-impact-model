@@ -8,7 +8,11 @@ NBA Stats API
     ├── ingestion/
     │   ├── fetch.py                # API calls, retries, backoff
     │   ├── transform.py            # Cleaning, column normalization
-    │   └── load.py                 # Upsert to Postgres
+    │   ├── load.py                 # Upsert to Postgres
+    |   ├── load_players.py         # `players` table
+    |   ├── load_teams.py           # `teams` table
+    |   ├── load_player_stats.py    # `player_season_stats` table
+    |   └── load_team_stats.py      # `team_season_stats` table
     │
     ├── features/
     │   └── build_features.py       # Feature engineering
@@ -19,9 +23,15 @@ NBA Stats API
 
 Database
 └── Postgres
-    ├── play_by_play                # ~7.5M total rows, all event types
-    ├── shots (materialized view)   # field goal attempts only (~2.68M)
-    └── shot_predictions            # one xshot value per field goal attempt
+    ├── play_by_play                        # ~7.5M total rows, all event types
+    ├── ingestion_log                       # per-game ingestion status
+    ├── shots (mat. view)                   # field goal attempts only (~2.68M)
+    ├── shot_predictions                    # one xshot value per field goal attempt
+    ├── players                             # player ID → full name lookup
+    ├── teams                               # team ID → tricode, full name
+    ├── player_season_stats                 # box score totals per player/team/season
+    ├── team_season_stats                   # box score totals per team/season
+    └── player_shot_quality (mat. view)     # materialized view - shot quality analytics
 
 Data Artifacts
 └── data/
@@ -70,7 +80,7 @@ Handles database writes:
 Orchestrates full ingestion:
 - `ingest_season(season, season_type)` - fetches all game IDs for a season, ingests each
 - `ingest_seasons()` - loops all seasons 2014-15 → 2025-26 (regular season + playoffs)
-    - Which seasons are ingested is controled by `SEASONS`
+    - Which seasons are ingested is controlled by `SEASONS`
 - `ingest_game(game_id, season, season_type)` - single game retry utility
 - Skips games already in `ingestion_log` with status `success`
 
@@ -88,7 +98,7 @@ Loads the `shots` materialized view and engineers the ML features set:
 Trains XGBoost binary classifier to predict `shot_made` (1 = made /0 = miss)
 See `docs/XSHOT_MODEL.md` for full details.
 
-### `src/models/predict/py`
+### `src/models/predict.py`
 Loads trained model and full feature parquet, runs inference on all 2.68M shots, and upserts results to the `shot_predictions` table.
 - Validates all features present and no NaNs before inference
 - Computes `xshot_points = xshot x shot_value`
@@ -98,10 +108,22 @@ Loads trained model and full feature parquet, runs inference on all 2.68M shots,
 ### `src/utils/logging.py`
 Centralized logger factory. Call `get_logger(__name__)` in any module.
 
+### `src/ingestion/load_players.py`
+Populates the `players` table using `nba_api.stats.static.players` - a local static file, no API call required. Returns every player in NBA history with first name, last name, and full name. Upsers on `person_id`.
+
+### `src/ingestion/load_teams.py`
+Populates the `teams` table using `nba_api.stats.static.teams` - a local static file, no API call required. Returns all 30 current NBA teams with tricode, full name, city, and nickname. Upserts on `team_id`.
+
+### `src/ingestion/load_player_stats.py`
+Fetches full box score season totals for all players via `LeagueDashPlayerStats`. Loops all 12 seasons × 2 season types = 24 API calls (~30 seconds). Stores GP, MIN, PTS, REB, AST, STL, BLK, TOV, FGM, FGA, FG%, 3PM, 3PA, 3P%, FTM, FTA, FT%, OREB, DREB, PF, +/-. Traded players get one row per team.
+
+### `src/ingestion/load_team_stats.py`
+Same as `load_player_stats.py` but for teams via `LeagueDashTeamStats`. One per row per team per season per season type (regular season/playoffs). Primary key: `(team_id, season, season_type)`.
+
 ## Database Schema
 
 ### `play_by_play`
-~Raw play-by-play events. ~7.5M total rows across all event types (shots, fouls, turnovers, substitutions, etc.).
+Raw play-by-play events. ~7.5M total rows across all event types (shots, fouls, turnovers, substitutions, etc.).
 Key columns: `game_id`, `event_id`, `period`, `clock`, `player_id`, `shot_distance`, `x_legacy`, `y_legacy`, `shot_zone_basic`, `shot_result`, `action_type`, `sub_type`, `season`, `season_type`.
 
 ### `ingestion_log`
@@ -114,3 +136,20 @@ Filtered to field goal attempts only (`action_type = 'Field Goal'`). Used as the
 One row per field goal attempt. Primary key: `(game_id, action_id)`.
 Key columns: `person_id`, `team_id`, `season`, `season_type`, `xshot` (predicted make probability), `shot_made` (actual outcome), `shot_value` (2 or 3), `xshot_points` (xshot × shot_value).
 Indexed on `season`, `person_id`, `team_id` for fast aggregation queries.
+
+### `players`
+Static lookup table. One row per player in NBA history. Columns: `person_id` (PK), `first_name`, `last_name`, `full_name`. Source: `nba_api.stats.static.players`.
+
+### `teams`
+Static lookup table. One row per NBA team. Columns: `team_id` (PK), `tricode`, `full_name`, `city`, `nickname`. Source: `nba_api.stats.static.teams`.
+
+### `player_season_stats`
+ull box score season totals per player per team per season. Primary key: `(person_id, team_id, season, season_type)`. Traded players appear as multiple rows. Columns include GP, MIN, PTS, REB, AST, STL, BLK, TOV, FGM/FGA/FG%, FG3M/FG3A/FG3%, FTM/FTA/FT%, OREB, DREB, PF, plus_minus.
+
+### `team_season_stats`
+Full box score season totals per team per season. Primary key: `(team_id, season, season_type)`. Same columns as `player_season_stats` minus `person_id`.
+
+### `player_shot_quality` (materialized view)
+Shot quality analytics per player per team per season. Primary key: `(person_id, team_id, season, season_type)`. Key columns: `player_name`, `team_tricode`, `gp`, `min`, `shots_attempted`, `actual_fg_pct`, `mean_xshot`, `fg_pct_above_expected`, `actual_points`, `expected_points`, `points_above_expected`. Indexed on `(season, season_type)`, `player_name`. Refresh with `REFRESH MATERIALIZED VIEW player_shot_quality`.
+
+

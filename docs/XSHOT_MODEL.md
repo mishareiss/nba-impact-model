@@ -78,6 +78,20 @@ All derived via regex on the `sub_type` field (e.g., `sub_type` contains "Dunk" 
 
 The baseline is a naive model that always predicts the mean FG% (≈46.2%).
 
+## Production Validation
+
+After scoring all 2.68M shots and aggregating to `player_shot_qualities`, the top performers by `points_above_expected` (PAE) in 2025-26 Regular Season are shown below:
+
+ Player | Team | PAE | Mean xShot | Actual FG% |
+|--------|------|-----|-------|------------|
+| Nikola Jokić | DEN | +275.8 | 0.452 | 0.567 |
+| Kevin Durant | HOU | +251.2 | 0.437 | 0.520 |
+| Shai Gilgeous-Alexander | OKC | +220.53 | 0.471 | 0.553 |
+| Jamal Murray | DEN | +173.7 | 0.432 | 0.476 |
+| Luka Doncic | DEN | +171.2 | 0.416 | 0.505 |
+
+**Interpretation:** Results pass the smell test. The model correctly identifies elite scorers and shot-makers. mid-range scorers in particular consistently outperform shot difficulty (KD, SGA, Murray). The table also stores `fg_pct_above_expected` which is the per-shot normalized metric; `points_above_expected` is volume-dependent.
+
 ## Feature Importance Analysis
 **Top features:**
 1. `is_dunk` (0.35) - by far the most important. Dunks go in at ~95%+ rate, a massive signal.
@@ -103,7 +117,7 @@ The calibration curve closely follows the perfect diagonal with no systematic bi
 
 ## Known Limitations
 
-1. **No defender context.** The model has no information about shot contest level. A wide-open 3 and a heavily-contested 3 get the same features (shot_zone, same_zone, is_three=1). This is the single biggest source of unexplained variance.
+1. **No defender context.** The model has no information about shot contest level. A wide-open 3 and a heavily-contested 3 get the same features (same shot_zone, same is_three=1). This is the single biggest source of unexplained variance.
 2. **No shooter identity.** Some players shoot above their shot quality expectation consistently (e.g., elite shooters). The model cannot distinguish these - this is a feature, not a bug, for the intended use case (measuring shot quality independent of shooter skill).
 3. **Temporal drift.** The NBA has changed significantly since 2014-15 (3-point revolution). The model trains on 9 seasons of history, which may dampen recent 3-point shot difficulty changes.
 4. **`is_dunk` dominance.** 35% of all feature importance rests on one feature. This means for non-dunk shots, the model is working harder. Inspect non-dunk shot predictions separately in v2.
