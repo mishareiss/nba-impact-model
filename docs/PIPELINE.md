@@ -15,7 +15,8 @@ NBA Stats API
     |   └── load_team_stats.py      # `team_season_stats` table
     │
     ├── features/
-    │   └── build_features.py       # Feature engineering
+    |   ├── build_features.py       # Feature engineering
+    │   └── build_stints.py         # Lineup stint construction from PBP subs
     │
     └── models/
         ├── train_xshot.py          # Model training
@@ -152,4 +153,13 @@ Full box score season totals per team per season. Primary key: `(team_id, season
 ### `player_shot_quality` (materialized view)
 Shot quality analytics per player per team per season. Primary key: `(person_id, team_id, season, season_type)`. Key columns: `player_name`, `team_tricode`, `gp`, `min`, `shots_attempted`, `actual_fg_pct`, `mean_xshot`, `fg_pct_above_expected`, `actual_points`, `expected_points`, `points_above_expected`. Indexed on `(season, season_type)`, `player_name`. Refresh with `REFRESH MATERIALIZED VIEW player_shot_quality`.
 
+### `lineup_stints`
+421,849 stints acrsoss 15,370 games (2014-15 → 2025-26, regular season + playoffs).
+Each row is a continuous period where botb 5-player lineups were unchanged.
+Key columns: `game_id`, `season`, `season_type`, `start_time`, `end_time`, `duration`,
+`home_players` / `away_players` (integer arrays of 5 person_ids),
+`home_points` / `away_points` / `net_points` (via score timeline),
+`home_poss` / `away_poss` / `total_poss` (FGA + 0.44×FTA + TOV),
+`home_xshot_pts` / `away_xshot_pts` (aggregated from shot_predictions).
+Indexed on `game_id`, `(season, season_type)`.
 

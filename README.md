@@ -83,11 +83,14 @@ python -m src.ingestion.load_team_stats
 # 3. Build ML feature dataset
 python src/features/build_features.py
 
-# Train xShot model
+# 4. Train xShot model
 python src/models/train_xshot.py
 
-# Generate xShot predictions → writes to shot_predictions table
+# 5. Generate xShot predictions → writes to shot_predictions table
 python src/models/predict.py
+
+# 6. Build lineup stints
+python -m src.features.build_stints
 ```
 
 ## Project Status
@@ -101,13 +104,13 @@ python src/models/predict.py
 |xShot model v1 training|✅ Complete|XGBoost, 7.7% log loss reduction, calibrated|
 |xShot prediction generation|✅ Complete|2.68M shots scored, stored in Postgres|
 |Player shot quality analytics|✅ Complete|Validated - elite players rank as expected|
-|Stint data construction|🔄 Next|Parse substitution events → lineup stints|
-|Stint-level xShot aggregation|🔄 Next|Aggregate predictions to each lineup stint|
-|xRAPM model|📋 Planned|Ridge regression on stint data|
+|Stint data construction|✅ Complete|Parse substitution events → lineup stints|
+|Stint-level xShot aggregation|✅ Complete|Aggregate predictions to each lineup stint|
+|xRAPM model|🔄 Next|Ridge regression on stint data|
 |Queryable player impact ratings|📋 Planned|Postgres table, all seasons|
 |Team shot quality analytics|📋 Planned|`team_shot_quality` materialized view|
 |Season-over-season trend analysis|📋 Planned|Historical player/team comparisons|
 |Interactive dashboard|📋 Planned|Player search, leaderboards, shot charts|
-|Automated pipeline refresh|New season ingestion + view refresh|
+|Automated pipeline refresh|📋 Planned|New season ingestion + view refresh|
 
 

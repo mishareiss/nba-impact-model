@@ -88,7 +88,7 @@ After scoring all 2.68M shots and aggregating to `player_shot_qualities`, the to
 | Kevin Durant | HOU | +251.2 | 0.437 | 0.520 |
 | Shai Gilgeous-Alexander | OKC | +220.53 | 0.471 | 0.553 |
 | Jamal Murray | DEN | +173.7 | 0.432 | 0.476 |
-| Luka Doncic | DEN | +171.2 | 0.416 | 0.505 |
+| Luka Doncic | LAL | +171.2 | 0.416 | 0.505 |
 
 **Interpretation:** Results pass the smell test. The model correctly identifies elite scorers and shot-makers. mid-range scorers in particular consistently outperform shot difficulty (KD, SGA, Murray). The table also stores `fg_pct_above_expected` which is the per-shot normalized metric; `points_above_expected` is volume-dependent.
 
