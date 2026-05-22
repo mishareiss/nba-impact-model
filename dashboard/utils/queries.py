@@ -4,16 +4,69 @@ from .db import query
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Shared CTE: aggregates traded players into one row per (person, season)
+#
+# For traded players, player_career_stats has one row per team they played for.
+# Shot quality stats differ by team; RAPM and box score stats are duplicated.
+# This CTE aggregates shot quality by volume-weighted average and takes MAX
+# for all other fields (since they're identical across rows for a given player-season).
 # ---------------------------------------------------------------------------
 
-_PER_GAME = """
-    ROUND(CASE WHEN gp > 0 THEN pts::numeric / gp ELSE NULL END, 1) AS ppg,
-    ROUND(CASE WHEN gp > 0 THEN min::numeric / gp ELSE NULL END, 1) AS mpg,
-    ROUND(CASE WHEN gp > 0 THEN reb::numeric / gp ELSE NULL END, 1) AS rpg,
-    ROUND(CASE WHEN gp > 0 THEN ast::numeric / gp ELSE NULL END, 1) AS apg,
-    ROUND(CASE WHEN gp > 0 THEN stl::numeric / gp ELSE NULL END, 1) AS spg,
-    ROUND(CASE WHEN gp > 0 THEN blk::numeric / gp ELSE NULL END, 1) AS bpg
+_DEDUP_CTE = """
+WITH deduped AS (
+    SELECT
+        MAX(person_id)    AS person_id,
+        MAX(full_name)    AS full_name,
+        CASE
+            WHEN COUNT(DISTINCT team) > 1
+            THEN COUNT(DISTINCT team)::text || 'TM'
+            ELSE MAX(team)
+        END               AS team,
+        season,
+        season_type,
+        -- Shot quality: volume-weighted average for rates, SUM for totals
+        SUM(shots_attempted)::int                                                   AS shots_attempted,
+        ROUND(SUM(shots_attempted * actual_fg_pct)
+              / NULLIF(SUM(shots_attempted), 0), 4)                                 AS actual_fg_pct,
+        ROUND(SUM(shots_attempted * mean_xshot)
+              / NULLIF(SUM(shots_attempted), 0), 4)                                 AS mean_xshot,
+        ROUND(SUM(shots_attempted * fg_pct_above_expected)
+              / NULLIF(SUM(shots_attempted), 0), 4)                                 AS fg_pct_above_expected,
+        ROUND(SUM(shot_pts_above_expected)::numeric, 1)                             AS shot_pts_above_expected,
+        -- RAPM: identical across rows, take any
+        MAX(xrapm)        AS xrapm,
+        MAX(rapm)         AS rapm,
+        MAX(possessions)  AS possessions,
+        -- Box score totals: identical across rows (from DISTINCT ON), take MAX
+        MAX(gp)           AS gp,
+        MAX(pts)          AS pts,
+        MAX(min)          AS min,
+        MAX(reb)          AS reb,
+        MAX(ast)          AS ast,
+        MAX(stl)          AS stl,
+        MAX(blk)          AS blk,
+        MAX(season_plus_minus) AS season_plus_minus
+    FROM player_career_stats
+    {where}
+    GROUP BY person_id, season, season_type
+)
+"""
+
+_SELECT_COLS = """
+    person_id, full_name, team, season, season_type,
+    shots_attempted, actual_fg_pct, mean_xshot,
+    fg_pct_above_expected, shot_pts_above_expected,
+    xrapm, rapm,
+    ROUND((rapm - xrapm)::numeric, 3)                                          AS rapm_vs_xrapm,
+    possessions,
+    gp,
+    ROUND(CASE WHEN gp > 0 THEN pts::numeric  / gp ELSE NULL END, 1)          AS ppg,
+    ROUND(CASE WHEN gp > 0 THEN min::numeric  / gp ELSE NULL END, 1)          AS mpg,
+    ROUND(CASE WHEN gp > 0 THEN reb::numeric  / gp ELSE NULL END, 1)          AS rpg,
+    ROUND(CASE WHEN gp > 0 THEN ast::numeric  / gp ELSE NULL END, 1)          AS apg,
+    ROUND(CASE WHEN gp > 0 THEN stl::numeric  / gp ELSE NULL END, 1)          AS spg,
+    ROUND(CASE WHEN gp > 0 THEN blk::numeric  / gp ELSE NULL END, 1)          AS bpg,
+    season_plus_minus
 """
 
 
@@ -24,22 +77,11 @@ _PER_GAME = """
 def get_single_season_leaderboard(
     season: str, season_type: str, min_poss: int = 500
 ) -> pd.DataFrame:
+    cte = _DEDUP_CTE.format(
+        where="WHERE season = :season AND season_type = :season_type AND possessions >= :min_poss"
+    )
     return query(
-        f"""
-        SELECT person_id, full_name, team, season,
-               shots_attempted, actual_fg_pct, mean_xshot,
-               fg_pct_above_expected, shot_pts_above_expected,
-               xrapm, rapm,
-               ROUND((rapm - xrapm)::numeric, 3) AS rapm_vs_xrapm,
-               possessions, gp,
-               {_PER_GAME},
-               season_plus_minus
-        FROM player_career_stats
-        WHERE season = :season
-          AND season_type = :season_type
-          AND possessions >= :min_poss
-        ORDER BY rapm DESC NULLS LAST
-        """,
+        cte + f"SELECT {_SELECT_COLS} FROM deduped ORDER BY rapm DESC NULLS LAST",
         {"season": season, "season_type": season_type, "min_poss": min_poss},
     )
 
@@ -48,7 +90,7 @@ def get_pooled_leaderboard(min_poss: int = 1500) -> pd.DataFrame:
     return query(
         """
         SELECT full_name, team,
-               season AS window_label,
+               season        AS window_label,
                season_type,
                rapm_prior, xrapm, rapm,
                ROUND((rapm - xrapm)::numeric, 3) AS rapm_vs_xrapm,
@@ -74,21 +116,11 @@ def get_player_names() -> list[str]:
 
 
 def get_player_career(full_name: str, season_type: str) -> pd.DataFrame:
+    cte = _DEDUP_CTE.format(
+        where="WHERE full_name = :name AND season_type = :season_type"
+    )
     return query(
-        f"""
-        SELECT person_id, season, team,
-               shots_attempted, actual_fg_pct, mean_xshot,
-               fg_pct_above_expected, shot_pts_above_expected,
-               xrapm, rapm,
-               ROUND((rapm - xrapm)::numeric, 3) AS rapm_vs_xrapm,
-               possessions,
-               gp,
-               {_PER_GAME},
-               season_plus_minus
-        FROM player_career_stats
-        WHERE full_name = :name AND season_type = :season_type
-        ORDER BY season
-        """,
+        cte + f"SELECT {_SELECT_COLS} FROM deduped ORDER BY season",
         {"name": full_name, "season_type": season_type},
     )
 
@@ -107,23 +139,15 @@ def get_player_pooled(full_name: str) -> pd.DataFrame:
     )
 
 
-def get_league_distribution(season: str, season_type: str, min_poss: int = 500) -> pd.DataFrame:
-    """Full distribution of key metrics for percentile calculation."""
+def get_league_distribution(
+    season: str, season_type: str, min_poss: int = 500
+) -> pd.DataFrame:
+    """Full distribution of all metrics for percentile rank computation."""
+    cte = _DEDUP_CTE.format(
+        where="WHERE season = :season AND season_type = :season_type AND possessions >= :min_poss"
+    )
     return query(
-        """
-        SELECT rapm, xrapm, fg_pct_above_expected,
-               shot_pts_above_expected, mean_xshot, ppg, mpg
-        FROM (
-            SELECT rapm, xrapm, fg_pct_above_expected,
-                   shot_pts_above_expected, mean_xshot,
-                   ROUND(CASE WHEN gp > 0 THEN pts::numeric / gp ELSE NULL END, 1) AS ppg,
-                   ROUND(CASE WHEN gp > 0 THEN min::numeric / gp ELSE NULL END, 1) AS mpg
-            FROM player_career_stats
-            WHERE season = :season
-              AND season_type = :season_type
-              AND possessions >= :min_poss
-        ) t
-        """,
+        cte + f"SELECT {_SELECT_COLS} FROM deduped",
         {"season": season, "season_type": season_type, "min_poss": min_poss},
     )
 
