@@ -58,7 +58,8 @@ The underlying assumption is that process tends to be more stable and predictive
 - **Storage:** PostgreSQL -raw PBP events, reference tables, materialized views
 - **Machine Learning** XGBoost binary classifier, schikit-learn evaluation, joblib persistence
 - **Feature store:** Parquet (`data/shots_features.parquet`) with JSON metadata sidecar
-- **Orchestration:** Python 3.11, SQLAlchemy, pandas, numpy
+- **Dashboard:** Streamlit + Plotly (interactive leaderboards, player profiles, team analytics)
+- **Orchestration:** Python 3.11, SQLAlchemy, pandas, numpy, scipy
 - **Environment:** Conda (`environment.yml`)
 
 ## Setup
@@ -103,6 +104,12 @@ python -m src.models.train_xrapm
 
 # 8. Train pooled RAPM with prior (3-year windows)
 python -m src.models.train_xrapm_v2
+
+# 9. Build analytics materialized views (team shot quality + player career stats)
+python -m src.analysis.build_views
+
+# 10. Launch dashboard
+streamlit run dashboard/app.py
 ```
 
 ## Project Status
@@ -121,8 +128,9 @@ python -m src.models.train_xrapm_v2
 |RAPM / xRAPM v1 (single-season)|✅ Complete|Ridge regression, λ=30k, min 1000 poss, both RAPM and xRAPM stored|
 |RAPM v2 (3-year pooled + prior)|✅ Complete|Rolling 3-season windows, box-score prior, 4,914 ratings|
 |Player impact leaderboard|✅ Complete|`player_impact_leaderboard` mat. view with names, teams, box stats|
-|Season-over-season trend analysis|📋 Planned|Historical player/team comparisons|
-|Interactive dashboard|📋 Planned|Player search, leaderboards, shot charts|
+|Team shot quality analytics|✅ Complete|`team_shot_quality` mat. view, offense + defense xShot metrics per team/season|
+|Season-over-season trend analysis|✅ Complete|`player_career_stats` mat. view joins xShot, RAPM, box score per player/season|
+|Interactive dashboard|✅ Complete|Streamlit: Leaderboards, Player Profile, Team Analytics pages|
 |Automated pipeline refresh|📋 Planned|New season ingestion + view refresh|
 
 

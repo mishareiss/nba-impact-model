@@ -18,11 +18,24 @@ NBA Stats API
     |   ├── build_features.py       # Feature engineering
     │   └── build_stints.py         # Lineup stint construction from PBP subs
     │
-    └── models/
-        ├── train_xshot.py          # xShot model training
-        ├── predict.py              # xShot inference → shot_predictions table
-        ├── train_xrapm.py          # Single-season RAPM + xRAPM
-        └── train_xrapm_v2.py       # 3-year pooled RAPM with box-score prior
+    ├── models/
+    │   ├── train_xshot.py          # xShot model training
+    │   ├── predict.py              # xShot inference → shot_predictions table
+    │   ├── train_xrapm.py          # Single-season RAPM + xRAPM
+    │   └── train_xrapm_v2.py       # 3-year pooled RAPM with box-score prior
+    │
+    └── analysis/
+        └── build_views.py          # team_shot_quality + player_career_stats mat. views
+
+dashboard/
+├── app.py                          # Home page — league overview
+├── pages/
+│   ├── 1_Leaderboards.py           # Single-season + pooled impact leaderboards
+│   ├── 2_Player_Profile.py         # Career trend charts per player
+│   └── 3_Team_Analytics.py         # Team shot quality + season-over-season trends
+└── utils/
+    ├── db.py                       # SQLAlchemy engine + cached query() helper
+    └── queries.py                  # Pre-written SQL functions for each page
 
 Database
 └── Postgres
@@ -38,7 +51,9 @@ Database
     ├── lineup_stints                       # 421,849 stints across 15,370 games
     ├── player_impact_ratings               # single-season RAPM + xRAPM (v1)
     ├── player_impact_pooled                # 3-year pooled RAPM + prior (v2)
-    └── player_impact_leaderboard (mat. view) # unified leaderboard with names + box stats
+    ├── player_impact_leaderboard (mat. view) # unified leaderboard with names + box stats
+    ├── team_shot_quality (mat. view)         # offensive + defensive xShot metrics per team/season
+    └── player_career_stats (mat. view)       # xShot + RAPM + box score joined per player/season
 
 Data Artifacts
 └── data/
@@ -145,6 +160,27 @@ Fetches full box score season totals for all players via `LeagueDashPlayerStats`
 ### `src/ingestion/load_team_stats.py`
 Same as `load_player_stats.py` but for teams via `LeagueDashTeamStats`. One per row per team per season per season type (regular season/playoffs). Primary key: `(team_id, season, season_type)`.
 
+### `src/analysis/build_views.py`
+Creates (or replaces) two analytics materialized views used by the dashboard and trend analysis:
+- `build_team_shot_quality()` — creates `team_shot_quality`. Derives offensive stats directly from `shot_predictions` grouped by shooting team, and defensive stats by joining `shot_predictions` with `games` to identify the opposing (defending) team.
+- `build_player_career_stats()` — creates `player_career_stats`. Joins `player_shot_quality`, `player_impact_ratings`, and `player_season_stats` into a single queryable table keyed on `(person_id, team_id, season, season_type)`.
+- `refresh_analytics_views()` — refreshes both views plus `player_impact_leaderboard` after new data is ingested.
+
+Run: `python -m src.analysis.build_views`
+
+### `dashboard/app.py`
+Streamlit multi-page app entry point. Home page displays league overview metrics (total games, shots, league avg xShot, FG%) and season counts. Launch with `streamlit run dashboard/app.py`.
+
+### `dashboard/utils/db.py`
+SQLAlchemy engine wrapper for the dashboard. Imports the shared engine from `src.ingestion.db` and wraps `pd.read_sql()` in `@st.cache_data(ttl=300)` so query results are cached for 5 minutes across Streamlit reruns.
+
+### `dashboard/utils/queries.py`
+Pre-written SQL helpers for each dashboard page:
+- `get_single_season_leaderboard()` — v1 RAPM/xRAPM rankings from `player_career_stats`
+- `get_pooled_leaderboard()` — v2 pooled leaderboard from `player_impact_leaderboard`
+- `get_player_career()` / `get_player_pooled()` — per-player season trend data
+- `get_team_shot_quality()` / `get_team_trend()` — team analytics queries
+
 ## Database Schema
 
 ### `play_by_play`
@@ -203,4 +239,31 @@ Key columns: `full_name`, `team`, `season`, `season_type`, `rating_type` (single
 `xrapm`, `rapm`, `rapm_minus_xrapm`, `rapm_prior`, `possessions`, `gp`, `min`, `pts`, `season_plus_minus`.
 Indexed on `(season, season_type)`, `full_name`, `rapm_prior DESC`, `(rating_type, season, season_type)`.
 Refresh with `REFRESH MATERIALIZED VIEW player_impact_leaderboard`.
+
+### `team_shot_quality` (materialized view)
+Offensive and defensive shot quality analytics per team per season. Created by `src/analysis/build_views.py`.
+One row per `(team_id, season, season_type)`.
+
+**Offensive columns** (shots taken by the team):
+`fga`, `fgm`, `fg_pct`, `mean_xshot_off`, `actual_pts_off`, `expected_pts_off`, `pts_above_expected_off`
+
+**Defensive columns** (shots allowed against the team — defending team identified via `games` table):
+`fga_allowed`, `fgm_allowed`, `fg_pct_allowed`, `mean_xshot_def`, `actual_pts_allowed`, `expected_pts_allowed`, `pts_above_expected_def`
+
+Also includes `team` (tricode) and `team_name` from the `teams` lookup.
+Indexed on `(season, season_type)` and `team`.
+Refresh with `REFRESH MATERIALIZED VIEW team_shot_quality`.
+
+### `player_career_stats` (materialized view)
+Cross-season player summary joining all three analytics outputs into a single queryable table.
+Created by `src/analysis/build_views.py`. One row per `(person_id, team_id, season, season_type)`.
+
+**Shot quality** (from `player_shot_quality`): `shots_attempted`, `actual_fg_pct`, `mean_xshot`, `fg_pct_above_expected`, `shot_actual_pts`, `shot_expected_pts`, `shot_pts_above_expected`
+
+**Impact ratings** (from `player_impact_ratings`, LEFT JOIN — NULL if < 1,000 poss): `xrapm`, `rapm`, `rapm_minus_xrapm`, `possessions`
+
+**Box score** (from `player_season_stats`, LEFT JOIN): `gp`, `min`, `pts`, `reb`, `ast`, `stl`, `blk`, `tov`, `season_plus_minus`
+
+Indexed on `(person_id, season_type)`, `full_name`, `(season, season_type)`.
+Refresh with `REFRESH MATERIALIZED VIEW player_career_stats`.
 
