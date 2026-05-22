@@ -19,8 +19,10 @@ NBA Stats API
     │   └── build_stints.py         # Lineup stint construction from PBP subs
     │
     └── models/
-        ├── train_xshot.py          # Model training
-        └── predict.py              # Inference → shot_predictions table
+        ├── train_xshot.py          # xShot model training
+        ├── predict.py              # xShot inference → shot_predictions table
+        ├── train_xrapm.py          # Single-season RAPM + xRAPM
+        └── train_xrapm_v2.py       # 3-year pooled RAPM with box-score prior
 
 Database
 └── Postgres
@@ -32,7 +34,11 @@ Database
     ├── teams                               # team ID → tricode, full name
     ├── player_season_stats                 # box score totals per player/team/season
     ├── team_season_stats                   # box score totals per team/season
-    └── player_shot_quality (mat. view)     # materialized view - shot quality analytics
+    ├── player_shot_quality (mat. view)     # shot quality analytics per player/season
+    ├── lineup_stints                       # 421,849 stints across 15,370 games
+    ├── player_impact_ratings               # single-season RAPM + xRAPM (v1)
+    ├── player_impact_pooled                # 3-year pooled RAPM + prior (v2)
+    └── player_impact_leaderboard (mat. view) # unified leaderboard with names + box stats
 
 Data Artifacts
 └── data/
@@ -96,8 +102,26 @@ Loads the `shots` materialized view and engineers the ML features set:
 - Saves to `data/shots_features.parquet` with metadata JSON sidecar
 
 ### `src/models/train_xshot.py`
-Trains XGBoost binary classifier to predict `shot_made` (1 = made /0 = miss)
+Trains XGBoost binary classifier to predict `shot_made` (1 = made / 0 = miss).
 See `docs/XSHOT_MODEL.md` for full details.
+
+### `src/models/train_xrapm.py`
+Single-season RAPM and xRAPM via ridge regression on `lineup_stints`.
+- Builds sparse design matrix X (stints × players, +1 home / −1 away)
+- Fits ridge twice: once on xShot target (`y_xshot`), once on actual points (`y_actual`)
+- Stores both coefficients per player per season in `player_impact_ratings`
+- λ = 30,000 · min 1,000 possessions · fit_intercept=False
+- Idempotent: DELETE + INSERT per season/season_type on each run
+
+### `src/models/train_xrapm_v2.py`
+3-year rolling pooled RAPM with box-score prior.
+- Pools stints across 3-season windows (e.g. 2022-23 → 2024-25), reducing single-season lineup collinearity
+- Builds box-score prior γ per player from `player_season_stats` plus/minus:
+  `γ = (plus_minus / min) × 48 × PRIOR_WEIGHT (0.12)`, then centered to mean 0
+- Fits RAPM+prior via reparameterization: minimize `‖y − Xβ‖² + λ‖β − γ‖²`
+  by fitting on residual `y_adj = y − Xγ`, then `β_final = γ + coef*`
+- Stores xRAPM, RAPM, rapm_prior, prior_estimate per player per window in `player_impact_pooled`
+- **v2 limitations:** prior scale varies by era (teams with different offensive pace/efficiency); no direct era normalization; single-season noise partially persists for role players on dominant teams
 
 ### `src/models/predict.py`
 Loads trained model and full feature parquet, runs inference on all 2.68M shots, and upserts results to the `shot_predictions` table.
@@ -154,12 +178,29 @@ Full box score season totals per team per season. Primary key: `(team_id, season
 Shot quality analytics per player per team per season. Primary key: `(person_id, team_id, season, season_type)`. Key columns: `player_name`, `team_tricode`, `gp`, `min`, `shots_attempted`, `actual_fg_pct`, `mean_xshot`, `fg_pct_above_expected`, `actual_points`, `expected_points`, `points_above_expected`. Indexed on `(season, season_type)`, `player_name`. Refresh with `REFRESH MATERIALIZED VIEW player_shot_quality`.
 
 ### `lineup_stints`
-421,849 stints acrsoss 15,370 games (2014-15 → 2025-26, regular season + playoffs).
-Each row is a continuous period where botb 5-player lineups were unchanged.
+421,849 stints across 15,370 games (2014-15 → 2025-26, regular season + playoffs).
+Each row is a contiguous period where both 5-player lineups were unchanged.
 Key columns: `game_id`, `season`, `season_type`, `start_time`, `end_time`, `duration`,
 `home_players` / `away_players` (integer arrays of 5 person_ids),
 `home_points` / `away_points` / `net_points` (via score timeline),
 `home_poss` / `away_poss` / `total_poss` (FGA + 0.44×FTA + TOV),
-`home_xshot_pts` / `away_xshot_pts` (aggregated from shot_predictions).
+`home_xshot_pts` / `away_xshot_pts` (aggregated from `shot_predictions`).
 Indexed on `game_id`, `(season, season_type)`.
+
+### `player_impact_ratings`
+Single-season RAPM and xRAPM. Primary key: `(person_id, season, season_type)`.
+Key columns: `xrapm` (net xShot pts / 100 poss), `rapm` (net actual pts / 100 poss), `possessions`.
+4,760 rows across 2014-15 → 2025-26. λ=30,000, min 1,000 poss.
+
+### `player_impact_pooled`
+3-year rolling pooled RAPM with box-score prior. Primary key: `(person_id, end_season, season_type)`.
+Key columns: `xrapm`, `rapm`, `rapm_prior` (prior-adjusted), `prior_estimate` (γ), `possessions`, `window_seasons`.
+4,914 rows across end seasons 2016-17 → 2025-26. λ=30,000, prior weight=0.12, min 2,000 poss.
+
+### `player_impact_leaderboard` (materialized view)
+Unified leaderboard joining both v1 and v2 ratings with player names, team tricodes, and season box score stats.
+Key columns: `full_name`, `team`, `season`, `season_type`, `rating_type` (single / pooled_3yr),
+`xrapm`, `rapm`, `rapm_minus_xrapm`, `rapm_prior`, `possessions`, `gp`, `min`, `pts`, `season_plus_minus`.
+Indexed on `(season, season_type)`, `full_name`, `rapm_prior DESC`, `(rating_type, season, season_type)`.
+Refresh with `REFRESH MATERIALIZED VIEW player_impact_leaderboard`.
 

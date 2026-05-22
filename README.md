@@ -25,7 +25,13 @@ From xShot, the system produces:
 
 **Shot-Making Over Expected (SMOE)** - Measures how much a player outperforms or underperforms the expected value of their shot attempts based on shot quality. This isolates shot-making ability from raw scoring volume and shot selection. Players who rank highly consistently convert difficult attempts at above-expected rates while reliably finishing efficient opportunities. 2025-26 regular season leaders include elite scorers and shot creators such as Nikola Jokic, Kevin Durant, Shai Gilgeous-Alexander, Stephen Curry, Kawhi Leonard, and Jamal Murray, suggesting the model captures meaningful shooting talent and difficult shot-making ability.
 
-**Player Impact / xRAPM** - *(In development)* Regularized adjusted plus-minus model estimating a player’s marginal impact on team scoring efficiency per 100 possessions. Uses ridge regression over lineup stint data to control for teammate and opponent strength while reducing multicollinearity and noise inherent in raw plus-minus metrics.
+**Player Impact (RAPM / xRAPM)** - Regularized adjusted plus-minus models estimating a player’s marginal impact on team scoring efficiency per 100 possessions, controlling for teammates and opponents via ridge regression over lineup stint data. Three variants are produced:
+
+- **RAPM** — net actual scoring margin per 100 possessions. Stars on winning teams rank highly.
+- **xRAPM** — net expected scoring margin (xShot) per 100 possessions. More process-oriented; less susceptible to shooting variance.
+- **RAPM − xRAPM** — gap between outcomes and process; positive = outscores expected lineup margins (finishing, FTs, clutch shot-making).
+
+A v2 model produces **3-year pooled RAPM with box-score prior** (`rapm_prior`), which reduces single-season noise by pooling stints across three rolling seasons and shrinking estimates toward each player’s historical plus/minus baseline. Recommended for leaderboards. All ratings are queryable via the `player_impact_leaderboard` materialized view.
 
 ## Why This Matters
 
@@ -91,6 +97,12 @@ python src/models/predict.py
 
 # 6. Build lineup stints
 python -m src.features.build_stints
+
+# 7. Train RAPM and xRAPM (single-season)
+python -m src.models.train_xrapm
+
+# 8. Train pooled RAPM with prior (3-year windows)
+python -m src.models.train_xrapm_v2
 ```
 
 ## Project Status
@@ -106,9 +118,9 @@ python -m src.features.build_stints
 |Player shot quality analytics|✅ Complete|Validated - elite players rank as expected|
 |Stint data construction|✅ Complete|Parse substitution events → lineup stints|
 |Stint-level xShot aggregation|✅ Complete|Aggregate predictions to each lineup stint|
-|xRAPM model|🔄 Next|Ridge regression on stint data|
-|Queryable player impact ratings|📋 Planned|Postgres table, all seasons|
-|Team shot quality analytics|📋 Planned|`team_shot_quality` materialized view|
+|RAPM / xRAPM v1 (single-season)|✅ Complete|Ridge regression, λ=30k, min 1000 poss, both RAPM and xRAPM stored|
+|RAPM v2 (3-year pooled + prior)|✅ Complete|Rolling 3-season windows, box-score prior, 4,914 ratings|
+|Player impact leaderboard|✅ Complete|`player_impact_leaderboard` mat. view with names, teams, box stats|
 |Season-over-season trend analysis|📋 Planned|Historical player/team comparisons|
 |Interactive dashboard|📋 Planned|Player search, leaderboards, shot charts|
 |Automated pipeline refresh|📋 Planned|New season ingestion + view refresh|
