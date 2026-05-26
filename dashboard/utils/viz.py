@@ -1,51 +1,53 @@
 """
-Reusable Plotly chart builders for the NBA analytics dashboard.
+Reusable Plotly chart builders for the NBA xShot + RAPM dashboard.
 
 All functions:
   - Accept data in, return a go.Figure
   - Contain zero Streamlit calls (pure Plotly)
   - Are safe to call from any page
-  - Use consistent styling with the dark Streamlit theme
+  - Use the shared theme constants from utils/theme.py
 
-Extracted and generalized from 2_Player_Profile.py and 3_Team_Analytics.py so
-both pages (and the new Compare page) share identical rendering logic.
+Chart builders
+--------------
+  percentile_bar_chart()     Baseball Savant-style horizontal percentile bars
+  zone_efficiency_chart()    FG% by shot zone vs xShot baseline
+  zone_frequency_chart()     Donut chart of shot distribution by zone
+  impact_trend_chart()       RAPM/xRAPM season trend line
+  shot_quality_trend()       FG% vs expected bars + shot difficulty line
+  calibration_curve_fig()    Predicted vs actual make rate (model evaluation)
+  feature_importance_fig()   XGBoost gain importance horizontal bars
+  shot_difficulty_dist_fig() Distribution of xShot probabilities
+  stability_scatter_fig()    Year-to-year RAPM/xRAPM scatter (with R²)
+  process_vs_results_fig()   Shot difficulty vs FG% above expected scatter
+  rapm_distribution_fig()    League RAPM/xRAPM KDE histogram with player markers
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from scipy.stats import percentileofscore
 
 from .court import ZONE_ORDER, ZONE_LABELS
+from .theme import (
+    ACCENT, ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED, ACCENT_GOLD,
+    MUTED, MUTED_LIGHT, GRID, ZERO_LINE, SURFACE,
+    TIER_LEGEND, TIER_ELITE, TIER_GREAT, TIER_ABOVE, TIER_AVG, TIER_BELOW, TIER_POOR,
+    tier_color, chart_layout, MODEBAR,
+)
 
 # ---------------------------------------------------------------------------
-# Colour helpers
+# Colour helpers (kept for backwards compatibility)
 # ---------------------------------------------------------------------------
 
 def pct_color(p: float) -> str:
-    """Map a percentile (0-100) to a tier colour."""
-    if p >= 90: return "#1A9E4E"
-    if p >= 75: return "#2ECC71"
-    if p >= 60: return "#A4C429"
-    if p >= 40: return "#C8A82A"
-    if p >= 25: return "#E67E22"
-    return "#E74C3C"
+    """Map a percentile (0–100) to a tier hex colour."""
+    return tier_color(p)
 
 
 def team_pct_color(p: float) -> str:
-    """Same tier scale, slightly different palette for team charts."""
-    return pct_color(p)
-
-
-TIER_LEGEND = (
-    "<span style='color:#1A9E4E'>■</span> Elite (≥90th)  "
-    "<span style='color:#2ECC71'>■</span> Great (75–89th)  "
-    "<span style='color:#A4C429'>■</span> Above avg (60–74th)  "
-    "<span style='color:#C8A82A'>■</span> Average (40–59th)  "
-    "<span style='color:#E67E22'>■</span> Below avg (25–39th)  "
-    "<span style='color:#E74C3C'>■</span> Poor (&lt;25th)"
-)
+    return tier_color(p)
 
 # ---------------------------------------------------------------------------
 # Percentile bar chart  (Baseball Savant-style)
@@ -483,7 +485,7 @@ def shot_quality_trend(df: pd.DataFrame) -> go.Figure | None:
         y=df_s["fg_pct_above_expected"],
         name="FG% vs Expected",
         marker_color=[
-            "#2ECC71" if v >= 0 else "#E74C3C"
+            ACCENT_GREEN if v >= 0 else ACCENT_RED
             for v in df_s["fg_pct_above_expected"]
         ],
         hovertemplate="%{x}: <b>%{y:+.3f}</b> FG% vs expected<extra></extra>",
@@ -492,11 +494,11 @@ def shot_quality_trend(df: pd.DataFrame) -> go.Figure | None:
         x=df_s["season"], y=df_s["mean_xshot"],
         name="Avg Shot Difficulty",
         mode="lines+markers",
-        line=dict(color="#F4D03F", width=2),
+        line=dict(color=ACCENT_GOLD, width=2),
         yaxis="y2",
         hovertemplate="%{x}: <b>%{y:.3f}</b> avg xShot<extra></extra>",
     ))
-    fig.add_hline(y=0, line_dash="dot", line_color="rgba(200,200,200,0.4)")
+    fig.add_hline(y=0, line_dash="dot", line_color=ZERO_LINE)
     fig.update_layout(
         yaxis=dict(title="FG% vs Expected"),
         yaxis2=dict(title="Avg Shot Difficulty (xShot)",
@@ -506,5 +508,503 @@ def shot_quality_trend(df: pd.DataFrame) -> go.Figure | None:
         hovermode="x unified",
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Model evaluation charts
+# ---------------------------------------------------------------------------
+
+def calibration_curve_fig(data: dict) -> go.Figure:
+    """
+    Interactive calibration curve: predicted make probability vs actual make rate.
+
+    A well-calibrated model's curve hugs the diagonal. Deviations reveal
+    systematic over- or under-confidence in specific probability ranges.
+
+    Parameters
+    ----------
+    data : dict from load_calibration_data() with keys mean_predicted,
+           fraction_positive.
+    """
+    x = data["mean_predicted"]
+    y = data["fraction_positive"]
+
+    fig = go.Figure()
+
+    # Perfect calibration reference line
+    fig.add_trace(go.Scatter(
+        x=[0, 1], y=[0, 1],
+        mode="lines",
+        name="Perfect calibration",
+        line=dict(color="rgba(160,165,175,0.45)", width=1.5, dash="dash"),
+        hoverinfo="skip",
+    ))
+
+    # Model calibration curve
+    fig.add_trace(go.Scatter(
+        x=x, y=y,
+        mode="lines+markers",
+        name="xShot model",
+        line=dict(color=ACCENT, width=2.5),
+        marker=dict(size=7, color=ACCENT,
+                    line=dict(width=1.5, color="rgba(255,255,255,0.3)")),
+        hovertemplate=(
+            "Predicted: <b>%{x:.3f}</b><br>"
+            "Actual make rate: <b>%{y:.3f}</b><extra></extra>"
+        ),
+    ))
+
+    # Shade the calibration gap
+    fig.add_trace(go.Scatter(
+        x=x + x[::-1],
+        y=y + list(x)[::-1],
+        fill="toself",
+        fillcolor="rgba(232,70,42,0.07)",
+        line=dict(color="rgba(0,0,0,0)"),
+        showlegend=False,
+        hoverinfo="skip",
+        name="gap",
+    ))
+
+    fig.update_layout(
+        **chart_layout(height=380),
+        xaxis=dict(title="Predicted probability (xShot)", range=[0, 1],
+                   showgrid=True, gridcolor=GRID, zeroline=False,
+                   tickformat=".0%"),
+        yaxis=dict(title="Actual make rate", range=[0, 1],
+                   showgrid=True, gridcolor=GRID, zeroline=False,
+                   tickformat=".0%"),
+        hovermode="x unified",
+    )
+    return fig
+
+
+def feature_importance_fig(data: dict, top_n: int = 15) -> go.Figure:
+    """
+    Horizontal bar chart of normalised XGBoost gain importance.
+
+    Shows the top_n most influential features. Bars are coloured by
+    category: spatial features use blue, shot-type flags use orange,
+    context features use grey.
+
+    Parameters
+    ----------
+    data   : dict from load_feature_importance() with keys features, importance.
+    top_n  : number of features to display (sorted by importance descending).
+    """
+    features = data["features"]
+    importance = data["importance"]
+
+    pairs = sorted(zip(features, importance), key=lambda x: x[1])
+    pairs = pairs[-top_n:]  # top N by importance (sorted ascending for h-bar)
+
+    feats, imps = zip(*pairs)
+
+    # Colour by feature category
+    _SPATIAL = {"shot_distance", "shot_angle", "x_legacy", "y_legacy",
+                "shot_zone", "is_corner_three", "is_paint"}
+    _CONTEXT = {"period", "clock_seconds", "is_overtime", "is_playoffs",
+                "shot_value", "is_three"}
+
+    colors = []
+    for f in feats:
+        if f in _SPATIAL:
+            colors.append(ACCENT_BLUE)
+        elif f in _CONTEXT:
+            colors.append(MUTED_LIGHT)
+        else:
+            colors.append(ACCENT_GOLD)   # shot-type flags
+
+    # Clean up feature name display
+    labels = [f.replace("is_", "").replace("_", " ").title() for f in feats]
+
+    fig = go.Figure(go.Bar(
+        x=list(imps),
+        y=labels,
+        orientation="h",
+        marker_color=colors,
+        marker_line_width=0,
+        text=[f"{v:.1%}" for v in imps],
+        textposition="outside",
+        cliponaxis=False,
+        hovertemplate="<b>%{y}</b><br>Importance: %{x:.2%}<extra></extra>",
+    ))
+
+    # Legend annotations for category colours
+    fig.add_annotation(
+        text=(
+            f"<span style='color:{ACCENT_BLUE}'>■</span> Spatial  "
+            f"<span style='color:{ACCENT_GOLD}'>■</span> Shot type  "
+            f"<span style='color:{MUTED_LIGHT}'>■</span> Context"
+        ),
+        xref="paper", yref="paper", x=0, y=-0.06,
+        showarrow=False, font=dict(size=11),
+    )
+
+    fig.update_layout(
+        **chart_layout(height=max(300, top_n * 28 + 80)),
+        xaxis=dict(title="Normalised gain importance", showgrid=True,
+                   gridcolor=GRID, zeroline=False, tickformat=".0%",
+                   range=[0, max(imps) * 1.3]),
+        yaxis=dict(automargin=True, tickfont=dict(size=12)),
+        hovermode="closest",
+        margin=dict(l=20, r=100, t=40, b=60),
+    )
+    return fig
+
+
+def shot_difficulty_dist_fig(df: pd.DataFrame) -> go.Figure:
+    """
+    Bar chart showing the distribution of xShot probabilities across all shots.
+
+    Illustrates that the model captures the full range of shot difficulty —
+    from near-certain dunks (~0.95) to highly contested long-twos (~0.25).
+
+    Parameters
+    ----------
+    df : DataFrame from get_shot_difficulty_dist() with xshot_bin, n_shots columns.
+    """
+    if df.empty:
+        return go.Figure()
+
+    total = df["n_shots"].sum()
+    df = df.copy()
+    df["pct"] = df["n_shots"] / total
+
+    # Colour bars by xShot range: low = harder (red), high = easier (green)
+    colors = []
+    for b in df["xshot_bin"]:
+        b = float(b)
+        if b >= 0.7:
+            colors.append(ACCENT_GREEN)
+        elif b >= 0.45:
+            colors.append(ACCENT_GOLD)
+        elif b >= 0.25:
+            colors.append(ACCENT)
+        else:
+            colors.append(ACCENT_RED)
+
+    fig = go.Figure(go.Bar(
+        x=df["xshot_bin"],
+        y=df["n_shots"],
+        marker_color=colors,
+        marker_line_width=0,
+        hovertemplate=(
+            "xShot bin: <b>%{x:.2f}</b><br>"
+            "Shots: %{y:,}<br>"
+            "Share: %{customdata:.1%}<extra></extra>"
+        ),
+        customdata=df["pct"],
+        name="Shot count",
+    ))
+
+    fig.update_layout(
+        **chart_layout(height=340),
+        xaxis=dict(title="Predicted make probability (xShot)",
+                   showgrid=True, gridcolor=GRID, zeroline=False,
+                   tickformat=".2f"),
+        yaxis=dict(title="Number of shots", showgrid=True, gridcolor=GRID,
+                   zeroline=False),
+        hovermode="x unified",
+        bargap=0.05,
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Stability analysis charts
+# ---------------------------------------------------------------------------
+
+def stability_scatter_fig(
+    df_pairs: pd.DataFrame,
+    metric: str = "rapm",
+    label: str = "RAPM",
+    color: str = ACCENT,
+    highlight_names: list[str] | None = None,
+) -> go.Figure | None:
+    """
+    Year-to-year scatter for a metric across consecutive seasons.
+
+    Plots Year N vs Year N+1 for all player-season pairs.
+    Adds an OLS regression line and displays R² in the title.
+
+    Parameters
+    ----------
+    df_pairs        : DataFrame from get_stability_data() with {metric}_a / {metric}_b columns.
+    metric          : "rapm" or "xrapm".
+    highlight_names : Optional list of player names to highlight in a different colour.
+    """
+    col_a = f"{metric}_a"
+    col_b = f"{metric}_b"
+
+    if col_a not in df_pairs.columns or col_b not in df_pairs.columns:
+        return None
+
+    clean = df_pairs.dropna(subset=[col_a, col_b])
+    if len(clean) < 10:
+        return None
+
+    x = clean[col_a].values.astype(float)
+    y = clean[col_b].values.astype(float)
+
+    # OLS for R²
+    r = float(np.corrcoef(x, y)[0, 1])
+    r2 = r ** 2
+
+    # Regression line
+    m, b_int = np.polyfit(x, y, 1)
+    x_line = np.linspace(x.min() - 0.3, x.max() + 0.3, 80)
+    y_line = m * x_line + b_int
+
+    fig = go.Figure()
+
+    # All players — background grey dots
+    mask_hl = (
+        clean["full_name"].isin(highlight_names) if highlight_names else pd.Series(False, index=clean.index)
+    )
+    bg = clean[~mask_hl]
+
+    fig.add_trace(go.Scatter(
+        x=bg[col_a], y=bg[col_b],
+        mode="markers",
+        marker=dict(size=6, color="rgba(160,165,175,0.35)",
+                    line=dict(width=0.5, color="rgba(200,200,200,0.2)")),
+        hovertemplate=(
+            "<b>%{customdata}</b><br>"
+            f"Year N {label}: %{{x:+.2f}}<br>"
+            f"Year N+1 {label}: %{{y:+.2f}}<extra></extra>"
+        ),
+        customdata=bg["full_name"],
+        name="All players",
+        showlegend=False,
+    ))
+
+    # Highlighted players
+    if highlight_names:
+        hl = clean[mask_hl]
+        if not hl.empty:
+            fig.add_trace(go.Scatter(
+                x=hl[col_a], y=hl[col_b],
+                mode="markers+text",
+                marker=dict(size=10, color=color,
+                            line=dict(width=1.5, color="rgba(255,255,255,0.5)")),
+                text=hl["full_name"].apply(lambda n: n.split()[-1]),
+                textposition="top center",
+                textfont=dict(size=10, color=color),
+                hovertemplate=(
+                    "<b>%{customdata}</b><br>"
+                    f"Year N: %{{x:+.2f}}<br>"
+                    f"Year N+1: %{{y:+.2f}}<extra></extra>"
+                ),
+                customdata=hl["full_name"],
+                name="Selected",
+            ))
+
+    # Regression line
+    fig.add_trace(go.Scatter(
+        x=x_line, y=y_line,
+        mode="lines",
+        line=dict(color=color, width=2, dash="dash"),
+        name=f"OLS fit  (R²={r2:.2f})",
+        hoverinfo="skip",
+    ))
+
+    fig.add_hline(y=0, line_dash="dot", line_color=ZERO_LINE)
+    fig.add_vline(x=0, line_dash="dot", line_color=ZERO_LINE)
+
+    n_pairs = len(clean)
+    fig.update_layout(
+        **chart_layout(height=420),
+        xaxis=dict(title=f"Year N {label} (pts/100 poss)", showgrid=True,
+                   gridcolor=GRID, zeroline=False),
+        yaxis=dict(title=f"Year N+1 {label} (pts/100 poss)", showgrid=True,
+                   gridcolor=GRID, zeroline=False),
+        hovermode="closest",
+        annotations=[dict(
+            text=f"R² = {r2:.3f}  ·  n = {n_pairs:,} player-season pairs",
+            xref="paper", yref="paper", x=0.01, y=0.98,
+            showarrow=False,
+            font=dict(size=12, color=MUTED_LIGHT),
+            align="left",
+        )],
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Process vs Results scatter
+# ---------------------------------------------------------------------------
+
+def process_vs_results_fig(
+    df_all: pd.DataFrame,
+    highlight_row: pd.Series | None = None,
+    highlight_label: str = "",
+    color: str = ACCENT,
+) -> go.Figure:
+    """
+    Scatter plot: shot difficulty (mean xShot) vs shot-making (FG% above expected).
+
+    Contextualises where a player sits in the shot-quality landscape:
+      Top-right  → takes hard shots AND beats expectation (elite finisher)
+      Top-left   → beats expectation on easier looks (selective efficiency)
+      Bottom-right → takes hard shots but underperforms expectation
+      Bottom-left  → easy shots + underperforms (weakest profile)
+
+    Parameters
+    ----------
+    df_all        : league-wide DataFrame from get_process_vs_results().
+    highlight_row : optional single-player row to label and colour distinctly.
+    """
+    if df_all.empty:
+        return go.Figure()
+
+    fig = go.Figure()
+
+    # Background players
+    mask_hl = (
+        (df_all["full_name"] == highlight_label) if highlight_label else pd.Series(False, index=df_all.index)
+    )
+    bg = df_all[~mask_hl]
+
+    fig.add_trace(go.Scatter(
+        x=bg["mean_xshot"],
+        y=bg["fg_pct_above_expected"],
+        mode="markers",
+        marker=dict(
+            size=6,
+            color="rgba(160,165,175,0.30)",
+            line=dict(width=0.5, color="rgba(200,200,200,0.15)"),
+        ),
+        hovertemplate=(
+            "<b>%{customdata[0]}</b>  (%{customdata[1]})<br>"
+            "Avg xShot: %{x:.3f}<br>"
+            "FG% vs Expected: %{y:+.3f}<extra></extra>"
+        ),
+        customdata=list(zip(bg["full_name"], bg["team"])),
+        name="All players",
+        showlegend=False,
+    ))
+
+    # Highlighted player
+    if highlight_row is not None:
+        hx = float(highlight_row.get("mean_xshot", np.nan))
+        hy = float(highlight_row.get("fg_pct_above_expected", np.nan))
+        if not (np.isnan(hx) or np.isnan(hy)):
+            fig.add_trace(go.Scatter(
+                x=[hx], y=[hy],
+                mode="markers+text",
+                marker=dict(size=14, color=color,
+                            line=dict(width=2, color="rgba(255,255,255,0.6)")),
+                text=[highlight_label.split()[-1] if highlight_label else ""],
+                textposition="top center",
+                textfont=dict(size=12, color=color),
+                hovertemplate=(
+                    f"<b>{highlight_label}</b><br>"
+                    "Avg xShot: %{x:.3f}<br>"
+                    "FG% vs Expected: %{y:+.3f}<extra></extra>"
+                ),
+                name=highlight_label or "Selected",
+            ))
+
+    # Quadrant reference lines
+    x_med = float(df_all["mean_xshot"].median())
+    fig.add_hline(y=0, line_dash="dot", line_color=ZERO_LINE,
+                  annotation_text="League avg FG% vs expected",
+                  annotation_font_color=MUTED, annotation_position="right")
+    fig.add_vline(x=x_med, line_dash="dot", line_color=ZERO_LINE,
+                  annotation_text=f"Median xShot ({x_med:.3f})",
+                  annotation_font_color=MUTED, annotation_position="top")
+
+    fig.update_layout(
+        **chart_layout(height=420),
+        xaxis=dict(title="Avg Shot Difficulty (mean xShot)", showgrid=True,
+                   gridcolor=GRID, zeroline=False),
+        yaxis=dict(title="FG% Above Expected (Shot-Making)", showgrid=True,
+                   gridcolor=GRID, zeroline=False, tickformat="+.3f"),
+        hovermode="closest",
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# RAPM/xRAPM distribution with player markers
+# ---------------------------------------------------------------------------
+
+def rapm_distribution_fig(
+    df: pd.DataFrame,
+    selected_names: list[str] | None = None,
+) -> go.Figure:
+    """
+    Overlapping KDE histograms of RAPM and xRAPM with optional vertical
+    player-marker lines.
+
+    Demonstrates that the metric values form a bell curve centred near zero,
+    and lets users see where highlighted players land in the distribution.
+
+    Parameters
+    ----------
+    df             : DataFrame with columns full_name, rapm, xrapm.
+    selected_names : Optional list of player names to mark with vertical lines.
+    """
+    from scipy.stats import gaussian_kde
+
+    fig = go.Figure()
+
+    for col, name, color in [
+        ("rapm",  "RAPM",  ACCENT),
+        ("xrapm", "xRAPM", ACCENT_BLUE),
+    ]:
+        vals = df[col].dropna().values
+        if len(vals) < 5:
+            continue
+
+        fig.add_trace(go.Histogram(
+            x=vals, name=name, nbinsx=30,
+            marker_color=color.replace("#", "rgba(") + ",0.45)" if color.startswith("#")
+                         else color,
+            marker_line_width=0, opacity=0.6,
+            hovertemplate=f"{name}: %{{x:.2f}}<br>Players: %{{y}}<extra></extra>",
+        ))
+
+        kde = gaussian_kde(vals, bw_method=0.4)
+        x_range = np.linspace(vals.min() - 0.5, vals.max() + 0.5, 200)
+        bin_w = (vals.max() - vals.min()) / 30
+        y_kde = kde(x_range) * len(vals) * bin_w
+        fig.add_trace(go.Scatter(
+            x=x_range, y=y_kde, mode="lines",
+            line=dict(color=color, width=2),
+            showlegend=False, hoverinfo="skip",
+        ))
+
+    # Reference lines
+    fig.add_vline(x=0, line_dash="dot", line_color=ZERO_LINE,
+                  annotation_text="League avg",
+                  annotation_font_color=MUTED, annotation_position="top right")
+
+    # Player markers
+    if selected_names:
+        pal = [ACCENT_GOLD, ACCENT_GREEN, "rgba(220,220,255,0.9)"]
+        for i, name in enumerate(selected_names[:3]):
+            row = df[df["full_name"] == name]
+            if row.empty:
+                continue
+            rapm_val = float(row.iloc[0]["rapm"])
+            c = pal[i % len(pal)]
+            fig.add_vline(
+                x=rapm_val, line_dash="solid", line_color=c, line_width=2,
+                annotation_text=name.split()[-1],
+                annotation_font_color=c, annotation_position="top",
+                annotation_font_size=10,
+            )
+
+    fig.update_layout(
+        **chart_layout(height=360),
+        barmode="overlay",
+        xaxis=dict(title="RAPM / xRAPM (pts/100 poss vs avg)",
+                   showgrid=True, gridcolor=GRID, zeroline=False),
+        yaxis=dict(title="Player count", showgrid=True, gridcolor=GRID, zeroline=False),
+        hovermode="closest",
     )
     return fig

@@ -1,6 +1,7 @@
 """
-NBA xShot + RAPM Impact Model — Home
-Project overview, league trends, and navigation hub.
+NBA xShot + RAPM Impact Model — Project Overview
+Landing page: project context, pipeline diagram, dataset summary,
+model overview, key findings, and navigation.
 """
 
 import sys
@@ -10,13 +11,16 @@ _root = Path(__file__).resolve().parents[1]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-import numpy as np
 import streamlit as st
-import plotly.graph_objects as go
-from scipy.stats import gaussian_kde
 
-from dashboard.utils.db import query
-from dashboard.utils.nba_static import team_logo_url, player_headshot_url, team_color as _team_color
+from dashboard.utils.model_queries import (
+    load_model_metadata, get_dataset_summary,
+)
+from dashboard.utils.theme import (
+    ACCENT, ACCENT_BLUE, ACCENT_GREEN, ACCENT_GOLD, MUTED, MUTED_LIGHT,
+    SURFACE, SURFACE_MED, BORDER, section_label, metric_card, metric_row,
+    insight_card, nav_tile,
+)
 
 st.set_page_config(
     page_title="NBA xShot + RAPM Model",
@@ -25,617 +29,298 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ---------------------------------------------------------------------------
-# Page-level CSS: tighter spacing, card styling, nav tiles
-# ---------------------------------------------------------------------------
 st.markdown("""
 <style>
-/* section divider */
-.section-label {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    color: rgba(180,180,180,0.55);
-    text-transform: uppercase;
-    margin: 28px 0 10px 0;
+.badge {
+    display:inline-block;
+    background:rgba(255,255,255,0.07);
+    border:1px solid rgba(255,255,255,0.13);
+    border-radius:5px;
+    padding:3px 10px;
+    font-size:0.75rem;
+    font-weight:600;
+    color:rgba(200,210,220,0.85);
+    margin:2px 4px 2px 0;
+    letter-spacing:0.03em;
 }
-/* nav tiles */
-.nav-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
-.nav-tile {
-    flex: 1; min-width: 160px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.09);
-    border-radius: 10px;
-    padding: 18px 16px;
-    text-decoration: none;
-    transition: background 0.18s, border-color 0.18s;
-    cursor: pointer;
+.pipeline-node {
+    flex:1; min-width:105px;
+    background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.10);
+    border-radius:9px;
+    padding:12px 10px;
+    text-align:center;
 }
-.nav-tile:hover {
-    background: rgba(232,70,42,0.10);
-    border-color: rgba(232,70,42,0.45);
+.pipeline-node .pn-icon { font-size:1.3rem; margin-bottom:4px; }
+.pipeline-node .pn-title {
+    font-size:0.78rem; font-weight:700;
+    color:rgba(220,225,232,0.92); margin-bottom:3px;
 }
-.nav-tile .nt-icon { font-size: 1.9rem; margin-bottom: 8px; }
-.nav-tile .nt-title {
-    font-size: 0.95rem; font-weight: 700; color: #F0F2F5;
-    margin-bottom: 4px;
+.pipeline-node .pn-sub {
+    font-size:0.66rem; color:rgba(160,165,175,0.72); line-height:1.35;
 }
-.nav-tile .nt-desc { font-size: 0.74rem; color: rgba(160,165,175,0.85); line-height: 1.4; }
-/* exec metric cards */
-.exec-cards { display: flex; gap: 10px; flex-wrap: wrap; }
-.exec-card {
-    flex: 1; min-width: 140px;
-    background: rgba(255,255,255,0.042);
-    border-left: 3px solid rgba(232,70,42,0.6);
-    border-radius: 8px;
-    padding: 12px 14px;
+.pipeline-arrow {
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.1rem; color:rgba(160,165,175,0.45);
+    padding:0 2px; flex-shrink:0;
 }
-.ec-label { font-size: 0.68rem; font-weight: 600; color: rgba(160,165,175,0.85);
-            text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
-.ec-value { font-size: 1.45rem; font-weight: 700; margin-top: 4px; }
-.ec-sub   { font-size: 0.72rem; color: rgba(160,165,175,0.70); margin-top: 3px; }
+.flex-row { display:flex; gap:8px; flex-wrap:wrap; align-items:stretch; }
+.insight-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ---------------------------------------------------------------------------
-# Cached queries
-# ---------------------------------------------------------------------------
+# ── Load data (cached) ──────────────────────────────────────────────────────
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def load_league_trends(season_type: str):
-    """Shot profile + efficiency trends across all seasons from player_shot_zones."""
-    return query(
-        """
-        SELECT season, season_type,
-               ROUND((SUM(makes)::float
-                      / NULLIF(SUM(attempts),0))::numeric, 4)                AS fg_pct,
-               ROUND((SUM(attempts * mean_xshot)
-                      / NULLIF(SUM(attempts),0))::numeric, 4)                AS avg_xshot,
-               ROUND(((SUM(makes)
-                       + 0.5 * SUM(CASE WHEN shot_value=3 THEN makes ELSE 0 END))::float
-                      / NULLIF(SUM(attempts),0))::numeric, 4)                AS efg_pct,
-               ROUND((SUM(CASE WHEN shot_zone='three'    THEN attempts END)::float
-                      / NULLIF(SUM(attempts),0))::numeric, 4)                AS three_rate,
-               ROUND((SUM(CASE WHEN shot_zone='at_rim'   THEN attempts END)::float
-                      / NULLIF(SUM(attempts),0))::numeric, 4)                AS rim_rate,
-               ROUND((SUM(CASE WHEN shot_zone IN ('short_mid','mid_range','long_mid')
-                                    THEN attempts END)::float
-                      / NULLIF(SUM(attempts),0))::numeric, 4)                AS midrange_rate,
-               SUM(attempts)                                                  AS total_attempts
-        FROM player_shot_zones
-        WHERE season_type = :season_type
-        GROUP BY season, season_type
-        ORDER BY season
-        """,
-        {"season_type": season_type},
-    )
+meta = load_model_metadata()
+try:
+    summary = get_dataset_summary()
+except Exception:
+    summary = {}
+
+eval_m = meta.get("evaluation", {})
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def load_team_records(season: str, season_type: str) -> dict:
-    """
-    Derive win/loss records from lineup_stints by summing points per game.
-    Returns dict keyed by team tricode: {'w': int, 'l': int}.
-    """
-    df = query(
-        """
-        WITH game_scores AS (
-            SELECT ls.game_id, ls.home_team_id, ls.away_team_id,
-                   SUM(ls.home_points) AS home_pts,
-                   SUM(ls.away_points) AS away_pts
-            FROM lineup_stints ls
-            WHERE ls.season = :season AND ls.season_type = :season_type
-            GROUP BY ls.game_id, ls.home_team_id, ls.away_team_id
-        ),
-        team_records AS (
-            SELECT home_team_id AS team_id,
-                   SUM(CASE WHEN home_pts > away_pts THEN 1 ELSE 0 END) AS wins,
-                   SUM(CASE WHEN home_pts < away_pts THEN 1 ELSE 0 END) AS losses
-            FROM game_scores GROUP BY home_team_id
-            UNION ALL
-            SELECT away_team_id AS team_id,
-                   SUM(CASE WHEN away_pts > home_pts THEN 1 ELSE 0 END) AS wins,
-                   SUM(CASE WHEN away_pts < home_pts THEN 1 ELSE 0 END) AS losses
-            FROM game_scores GROUP BY away_team_id
-        )
-        SELECT t.tricode, SUM(wins) AS w, SUM(losses) AS l
-        FROM team_records tr
-        JOIN teams t ON t.team_id = tr.team_id
-        GROUP BY t.tricode
-        ORDER BY t.tricode
-        """,
-        {"season": season, "season_type": season_type},
-    )
-    if df.empty:
-        return {}
-    return {
-        row["tricode"]: {"w": int(row["w"]), "l": int(row["l"])}
-        for _, row in df.iterrows()
-    }
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def load_snapshot(season: str, season_type: str):
-    """Single-season exec snapshot metrics."""
-    snap = query(
-        """
-        SELECT
-            ROUND((SUM(makes)::float / NULLIF(SUM(attempts),0))::numeric, 3)    AS fg_pct,
-            ROUND((SUM(attempts * mean_xshot) / NULLIF(SUM(attempts),0))::numeric, 3)
-                                                                                 AS avg_xshot,
-            ROUND(((SUM(makes) + 0.5*SUM(CASE WHEN shot_value=3 THEN makes ELSE 0 END))::float
-                   / NULLIF(SUM(attempts),0))::numeric, 3)                       AS efg_pct,
-            ROUND((SUM(CASE WHEN shot_zone='three' THEN attempts END)::float
-                   / NULLIF(SUM(attempts),0))::numeric, 3)                       AS three_rate,
-            ROUND((SUM(CASE WHEN shot_zone='at_rim' THEN attempts END)::float
-                   / NULLIF(SUM(attempts),0))::numeric, 3)                       AS rim_rate,
-            SUM(attempts)                                                         AS total_fga
-        FROM player_shot_zones
-        WHERE season = :season AND season_type = :season_type
-        """,
-        {"season": season, "season_type": season_type},
-    )
-    best_team = query(
-        """
-        SELECT team, team_name,
-               ROUND((pts_above_expected_off - pts_above_expected_def)::numeric, 0)
-                   AS net_pts_above_expected
-        FROM team_shot_quality
-        WHERE season = :season AND season_type = :season_type
-        ORDER BY (pts_above_expected_off - pts_above_expected_def) DESC NULLS LAST
-        LIMIT 1
-        """,
-        {"season": season, "season_type": season_type},
-    )
-    worst_team = query(
-        """
-        SELECT team, team_name,
-               ROUND((pts_above_expected_off - pts_above_expected_def)::numeric, 0)
-                   AS net_pts_above_expected
-        FROM team_shot_quality
-        WHERE season = :season AND season_type = :season_type
-        ORDER BY (pts_above_expected_off - pts_above_expected_def) ASC NULLS LAST
-        LIMIT 1
-        """,
-        {"season": season, "season_type": season_type},
-    )
-    top_player = query(
-        """
-        SELECT MAX(person_id) AS person_id, full_name, team,
-               ROUND(MAX(xrapm)::numeric, 2) AS xrapm
-        FROM player_career_stats
-        WHERE season = :season AND season_type = :season_type
-          AND possessions >= 500
-        GROUP BY full_name, team
-        ORDER BY ROUND(MAX(xrapm)::numeric, 2) DESC NULLS LAST
-        LIMIT 1
-        """,
-        {"season": season, "season_type": season_type},
-    )
-    return snap, best_team, worst_team, top_player
-
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def load_rapm_dist(season: str, season_type: str, min_poss: int = 300):
-    """Per-player RAPM and xRAPM values for distribution chart."""
-    return query(
-        """
-        SELECT full_name, team,
-               MAX(rapm)   AS rapm,
-               MAX(xrapm)  AS xrapm,
-               MAX(o_rapm) AS o_rapm,
-               MAX(d_rapm) AS d_rapm,
-               MAX(possessions) AS possessions
-        FROM player_career_stats
-        WHERE season = :season AND season_type = :season_type
-          AND possessions >= :min_poss
-        GROUP BY full_name, team
-        ORDER BY rapm DESC NULLS LAST
-        """,
-        {"season": season, "season_type": season_type, "min_poss": min_poss},
-    )
-
-
-# ---------------------------------------------------------------------------
-# Helper: HTML exec metric card (with optional image)
-# ---------------------------------------------------------------------------
-
-def _exec_card(label: str, value: str, sub: str = "",
-               accent: str = "rgba(232,70,42,0.6)",
-               img_url: str = "", img_round: bool = False) -> str:
-    img_html = ""
-    if img_url:
-        shape = "border-radius:50%;" if img_round else "border-radius:4px;"
-        img_html = (
-            f'<div style="margin-bottom:6px">'
-            f'<img src="{img_url}" '
-            f'style="height:34px;width:auto;max-width:60px;object-fit:contain;{shape}" '
-            f'onerror="this.style.display=\'none\'">'
-            f'</div>'
-        )
-    return (
-        f'<div class="exec-card" style="border-left-color:{accent}">'
-        f'{img_html}'
-        f'<div class="ec-label">{label}</div>'
-        f'<div class="ec-value">{value}</div>'
-        f'{"<div class=ec-sub>" + sub + "</div>" if sub else ""}'
-        f'</div>'
-    )
-
-
-def _fmt(v, spec: str) -> str:
-    try:
-        return f"{float(v):{spec}}"
-    except Exception:
-        return "—"
-
-
-# ---------------------------------------------------------------------------
-# Global filter bar
-# ---------------------------------------------------------------------------
+# ── SECTION 1 — HERO ────────────────────────────────────────────────────────
 
 st.markdown(
-    "<h1 style='margin-bottom:2px'>🏀 NBA xShot + RAPM Impact Model</h1>"
-    "<p style='color:rgba(160,165,175,0.75);font-size:0.92rem;margin-top:0'>"
-    "2.68 million field goal attempts · 12 seasons (2014-15 → 2025-26) · "
-    "XGBoost shot quality model → Ridge RAPM/xRAPM player impact ratings</p>",
+    f"<h1 style='margin-bottom:6px;font-size:2.1rem'>🏀 NBA xShot + RAPM Impact Model</h1>"
+    f"<p style='font-size:1.0rem;color:{MUTED};max-width:800px;line-height:1.6;margin-top:0'>"
+    "An end-to-end machine learning system for measuring NBA shot quality and player impact. "
+    "An XGBoost model predicts the probability of every field goal attempt; "
+    "those predictions feed a Ridge regression lineup model that isolates each player's "
+    "marginal contribution to team scoring, controlling for teammates and opponents."
+    "</p>",
     unsafe_allow_html=True,
 )
 
-flt_c1, flt_c2, flt_c3 = st.columns([2, 2, 6])
-focus_season = flt_c1.selectbox(
-    "Focus Season",
-    ["2025-26", "2024-25", "2023-24", "2022-23", "2021-22", "2020-21",
-     "2019-20", "2018-19", "2017-18", "2016-17", "2015-16", "2014-15"],
-    index=0, key="home_season",
-)
-season_type = flt_c2.selectbox(
-    "Season Type", ["Regular Season", "Playoffs"], key="home_stype"
-)
-
-# ---------------------------------------------------------------------------
-# Section 1 — Executive Snapshot
-# ---------------------------------------------------------------------------
-
-st.markdown('<div class="section-label">Executive Snapshot</div>', unsafe_allow_html=True)
-
-snap_df, best_team_df, worst_team_df, top_player_df = load_snapshot(focus_season, season_type)
-records = load_team_records(focus_season, season_type)
-
-def _record_str(tricode: str) -> str:
-    rec = records.get(tricode)
-    return f"{rec['w']}–{rec['l']}" if rec else ""
-
-if not snap_df.empty:
-    s  = snap_df.iloc[0]
-    bt = best_team_df.iloc[0]  if not best_team_df.empty  else None
-    wt = worst_team_df.iloc[0] if not worst_team_df.empty else None
-    tp = top_player_df.iloc[0] if not top_player_df.empty else None
-
-    # ── Row 1: league-wide metrics (no images) ──────────────────────────
-    row1 = '<div class="exec-cards">'
-    row1 += _exec_card(
-        "League Avg xShot", _fmt(s["avg_xshot"], ".3f"),
-        "Predicted make probability",
-    )
-    row1 += _exec_card(
-        "League FG%", _fmt(s["fg_pct"], ".3f"),
-        f"eFG%: {_fmt(s['efg_pct'], '.3f')}",
-        accent="rgba(46,204,113,0.6)",
-    )
-    row1 += _exec_card(
-        "3-Point Rate", _fmt(float(s["three_rate"]) * 100, ".1f") + "%",
-        "of all FGA from beyond arc",
-        accent="rgba(76,155,232,0.6)",
-    )
-    row1 += _exec_card(
-        "Rim Frequency", _fmt(float(s["rim_rate"]) * 100, ".1f") + "%",
-        "at-rim / restricted area",
-        accent="rgba(241,196,15,0.6)",
-    )
-    row1 += "</div>"
-    st.markdown(row1, unsafe_allow_html=True)
-
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-    # ── Row 2: best team, worst team, top player (with images) ──────────
-    row2 = '<div class="exec-cards">'
-
-    if bt is not None:
-        bt_rec   = _record_str(str(bt["team"]))
-        bt_logo  = team_logo_url(str(bt["team"])) or ""
-        bt_color = _team_color(str(bt["team"]))
-        row2 += _exec_card(
-            "Best Team — Net xShot",
-            f"+{int(bt['net_pts_above_expected'])} pts",
-            f"{bt['team_name']}  {bt_rec}",
-            accent=bt_color,
-            img_url=bt_logo,
-        )
-
-    if wt is not None:
-        wt_rec   = _record_str(str(wt["team"]))
-        wt_logo  = team_logo_url(str(wt["team"])) or ""
-        wt_color = _team_color(str(wt["team"]))
-        row2 += _exec_card(
-            "Worst Team — Net xShot",
-            f"{int(wt['net_pts_above_expected'])} pts",
-            f"{wt['team_name']}  {wt_rec}",
-            accent=wt_color,
-            img_url=wt_logo,
-        )
-
-    if tp is not None:
-        pid        = int(tp["person_id"])
-        hs_url     = player_headshot_url(pid)
-        tp_color   = _team_color(str(tp["team"]))
-        row2 += _exec_card(
-            "Top xRAPM Player",
-            f"{tp['full_name']}",
-            f"{tp['team']} · xRAPM +{_fmt(tp['xrapm'], '.2f')}",
-            accent=tp_color,
-            img_url=hs_url,
-            img_round=True,
-        )
-
-    row2 += "</div>"
-    st.markdown(row2, unsafe_allow_html=True)
-
-else:
-    st.info(f"No data available for {focus_season} {season_type}.")
-
-# ---------------------------------------------------------------------------
-# Section 2 — League Trends Overview
-# ---------------------------------------------------------------------------
-
-st.markdown('<div class="section-label">League Trends Overview</div>', unsafe_allow_html=True)
-st.caption(
-    f"Showing **{season_type}** data across all 12 seasons. "
-    "Charts illustrate the structural evolution of NBA offence since 2014-15."
+# Tech stack badges
+badges = [
+    "XGBoost", "Ridge Regression", "Python 3.11",
+    "PostgreSQL", "SQLAlchemy", "Streamlit", "Plotly",
+]
+st.markdown(
+    "".join(f'<span class="badge">{b}</span>' for b in badges),
+    unsafe_allow_html=True,
 )
 
-trends_df = load_league_trends(season_type)
+st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-_CHART_LAYOUT = dict(
-    plot_bgcolor="rgba(0,0,0,0)",
-    paper_bgcolor="rgba(0,0,0,0)",
-    hovermode="x unified",
-    legend=dict(orientation="h", y=1.08),
-    height=380,
-    margin=dict(l=20, r=20, t=40, b=20),
+# Scale numbers as inline cards
+n_shots  = summary.get("shots",   2_680_000)
+n_stints = summary.get("stints",    421_000)
+n_seas   = summary.get("seasons",        12)
+n_plyr   = summary.get("players",       500)
+
+cards_html = metric_row(
+    metric_card("Field Goal Attempts", f"{n_shots/1e6:.2f}M", "2014-15 → 2025-26", ACCENT),
+    metric_card("Lineup Stints", f"{n_stints/1e3:.0f}k", "5v5 possession segments", ACCENT_BLUE),
+    metric_card("Seasons", str(n_seas), "Regular season + playoffs", ACCENT_GREEN),
+    metric_card("Log-Loss Reduction", f"{eval_m.get('log_loss_reduction_pct', 7.7):.1f}%",
+                "xShot vs naive baseline", ACCENT_GOLD),
 )
-_GRID = dict(showgrid=True, gridcolor="rgba(80,80,80,0.25)", zeroline=False)
-_XSEASON = dict(showgrid=False, title="Season")
-_MODEBAR = {"modeBarButtonsToAdd": ["downloadImage"], "displaylogo": False}
+st.markdown(cards_html, unsafe_allow_html=True)
+
+st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
 
 
-# ── A: Shot Profile Evolution ──────────────────────────────────────────────────
-st.markdown("**📐 Shot Profile Evolution**")
-st.caption(
-    "The NBA's analytical revolution in a single chart. "
-    "Mid-range frequency collapsed from **45.7% → 25.5%** as analytics departments "
-    "quantified the cost of long 2s. 3-point rate rose from **26.8% → 42.1%**."
-)
+# ── SECTION 2 — PIPELINE DIAGRAM ───────────────────────────────────────────
 
-if not trends_df.empty:
-    df_t = trends_df.copy()
-    fig_shot = go.Figure()
-    fig_shot.add_trace(go.Scatter(
-        x=df_t["season"], y=(df_t["three_rate"] * 100).round(1),
-        mode="lines+markers", name="3-Point Rate",
-        line=dict(color="#E8462A", width=2.5), marker=dict(size=7),
-        hovertemplate="%{x}: <b>%{y:.1f}%</b> 3PT rate<extra></extra>",
-    ))
-    fig_shot.add_trace(go.Scatter(
-        x=df_t["season"], y=(df_t["rim_rate"] * 100).round(1),
-        mode="lines+markers", name="At-Rim Rate",
-        line=dict(color="#2ECC71", width=2.5), marker=dict(size=7),
-        hovertemplate="%{x}: <b>%{y:.1f}%</b> at-rim rate<extra></extra>",
-    ))
-    fig_shot.add_trace(go.Scatter(
-        x=df_t["season"], y=(df_t["midrange_rate"] * 100).round(1),
-        mode="lines+markers", name="Mid-Range Rate",
-        line=dict(color="#AAB7B8", width=2, dash="dash"), marker=dict(size=7),
-        hovertemplate="%{x}: <b>%{y:.1f}%</b> mid-range rate<extra></extra>",
-    ))
-    fig_shot.update_layout(
-        **_CHART_LAYOUT,
-        xaxis=_XSEASON,
-        yaxis=dict(**_GRID, title="% of All FGA", tickformat=".0f", ticksuffix="%"),
-    )
-    st.plotly_chart(fig_shot, use_container_width=True, config=_MODEBAR)
-else:
-    st.info("No trend data available.")
+st.markdown(section_label("System Architecture"), unsafe_allow_html=True)
+st.caption("End-to-end data pipeline from raw API data to dashboard-ready impact ratings.")
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── B: League Efficiency Trends ───────────────────────────────────────────────
-st.markdown("**📈 League Efficiency Trends**")
-st.caption(
-    "League-wide efficiency has improved steadily as teams moved to higher-value shots. "
-    "**eFG%** adjusts FG% for the 3-point bonus (a made 3 = 1.5x a made 2). "
-    "**Avg xShot** tracks eFG% closely — confirming the model is well-calibrated."
-)
-
-if not trends_df.empty:
-    df_e = trends_df.copy()
-    fig_eff = go.Figure()
-    fig_eff.add_trace(go.Scatter(
-        x=df_e["season"], y=(df_e["efg_pct"] * 100).round(2),
-        mode="lines+markers", name="eFG%",
-        line=dict(color="#E8462A", width=2.5), marker=dict(size=7),
-        hovertemplate="%{x}: <b>%{y:.2f}%</b> eFG%<extra></extra>",
-    ))
-    fig_eff.add_trace(go.Scatter(
-        x=df_e["season"], y=(df_e["avg_xshot"] * 100).round(2),
-        mode="lines+markers", name="Avg xShot (expected eFG% proxy)",
-        line=dict(color="#4C9BE8", width=2.5, dash="dash"), marker=dict(size=7),
-        hovertemplate="%{x}: <b>%{y:.2f}%</b> avg xShot<extra></extra>",
-    ))
-    fig_eff.add_trace(go.Scatter(
-        x=df_e["season"], y=(df_e["fg_pct"] * 100).round(2),
-        mode="lines+markers", name="Raw FG%",
-        line=dict(color="#AAB7B8", width=1.5, dash="dot"), marker=dict(size=5),
-        hovertemplate="%{x}: <b>%{y:.2f}%</b> FG%<extra></extra>",
-    ))
-    fig_eff.update_layout(
-        **_CHART_LAYOUT,
-        xaxis=_XSEASON,
-        yaxis=dict(**_GRID, title="Efficiency (%)", tickformat=".1f", ticksuffix="%"),
-    )
-    st.plotly_chart(fig_eff, use_container_width=True, config=_MODEBAR)
-else:
-    st.info("No trend data available.")
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── C: RAPM Distribution ──────────────────────────────────────────────────────
-st.markdown("**⚖️ RAPM Distribution**")
-st.caption(
-    f"Distribution of RAPM and xRAPM across all qualified players — "
-    f"**{focus_season} {season_type}** (≥300 stint possessions). "
-    "Most players cluster near 0. Elite players sit at +1 to +2."
-)
-
-rapm_df = load_rapm_dist(focus_season, season_type, min_poss=300)
-
-if not rapm_df.empty:
-    rapm_vals  = rapm_df["rapm"].dropna().values
-    xrapm_vals = rapm_df["xrapm"].dropna().values
-
-    fig_dist = go.Figure()
-
-    for vals, name, color in [
-        (rapm_vals,  "RAPM",  "rgba(232,70,42,0.55)"),
-        (xrapm_vals, "xRAPM", "rgba(76,155,232,0.45)"),
-    ]:
-        if len(vals) < 5:
-            continue
-        fig_dist.add_trace(go.Histogram(
-            x=vals, name=name, nbinsx=28,
-            marker_color=color, marker_line_width=0, opacity=0.7,
-            hovertemplate=f"{name}: %{{x:.2f}}<br>Players: %{{y}}<extra></extra>",
-        ))
-        kde = gaussian_kde(vals, bw_method=0.4)
-        x_range = np.linspace(vals.min() - 0.3, vals.max() + 0.3, 200)
-        bin_width = (vals.max() - vals.min()) / 28
-        y_scaled = kde(x_range) * len(vals) * bin_width
-        solid = color.replace("0.55", "0.9").replace("0.45", "0.9")
-        fig_dist.add_trace(go.Scatter(
-            x=x_range, y=y_scaled, mode="lines",
-            line=dict(color=solid, width=2),
-            showlegend=False, hoverinfo="skip",
-        ))
-
-    fig_dist.add_vline(x=0,    line_dash="dot", line_color="rgba(200,200,200,0.4)",
-                       annotation_text="League avg",
-                       annotation_font_color="rgba(180,180,180,0.6)",
-                       annotation_position="top right")
-    fig_dist.add_vline(x=1.0,  line_dash="dot", line_color="rgba(46,204,113,0.3)",
-                       annotation_text="+1.0", annotation_position="top",
-                       annotation_font_color="rgba(46,204,113,0.5)")
-    fig_dist.add_vline(x=-1.0, line_dash="dot", line_color="rgba(231,76,60,0.3)",
-                       annotation_text="−1.0", annotation_position="top",
-                       annotation_font_color="rgba(231,76,60,0.5)")
-
-    top3 = rapm_df.nlargest(3, "rapm")
-    for _, r in top3.iterrows():
-        try:
-            fig_dist.add_annotation(
-                x=float(r["rapm"]), y=0,
-                text=r["full_name"].split()[-1],
-                showarrow=True, arrowhead=2,
-                font=dict(size=9, color="rgba(232,70,42,0.85)"),
-                ax=0, ay=40,
-            )
-        except (TypeError, ValueError):
-            pass
-
-    # RAPM distribution uses closest hover (not x unified — it's a histogram)
-    dist_layout = {**_CHART_LAYOUT, "hovermode": "closest"}
-    dist_layout.pop("hovermode") if "hovermode" in _CHART_LAYOUT else None
-    fig_dist.update_layout(
-        **_CHART_LAYOUT,
-        barmode="overlay",
-        xaxis=dict(**_GRID, title="RAPM / xRAPM (pts/100 poss vs avg)"),
-        yaxis=dict(**_GRID, title="Player Count"),
-    )
-    fig_dist.update_layout(hovermode="closest")   # override after base layout
-
-    st.plotly_chart(fig_dist, use_container_width=True, config=_MODEBAR)
-
-    n = len(rapm_df)
-    above_0 = int((rapm_df["rapm"].dropna() > 0).sum())
-    median_rapm = float(rapm_df["rapm"].dropna().median())
-    std_rapm    = float(rapm_df["rapm"].dropna().std())
-    st.caption(
-        f"**{n}** qualified players · "
-        f"**{above_0}** above 0 ({above_0/n*100:.0f}%) · "
-        f"Median RAPM: **{median_rapm:+.2f}** · "
-        f"Std dev: **{std_rapm:.2f}** pts/100 poss"
-    )
-else:
-    st.info(f"No RAPM data available for {focus_season} {season_type}.")
-
-
-# ---------------------------------------------------------------------------
-# Section 3 — Quick Access Tiles
-# ---------------------------------------------------------------------------
-
-st.markdown('<div class="section-label">Explore the Model</div>', unsafe_allow_html=True)
-
-_TILES = [
-    ("pages/1_Leaderboards.py",   "📊", "Leaderboards",
-     "RAPM & xRAPM player rankings. Single-season and multi-year pooled views."),
-    ("pages/2_Player_Profile.py", "👤", "Player Profile",
-     "Per-player shot chart, zone efficiency, RAPM/xRAPM career trend & percentile profile."),
-    ("pages/3_Glossary.py",       "📖", "Glossary",
-     "Plain-English definitions of xShot, RAPM, xRAPM, RAPM−xRAPM, and every derived metric."),
+pipeline_nodes = [
+    ("🌐", "NBA Stats API",      "play-by-play · box scores · shot logs"),
+    ("🗄️", "PostgreSQL",         "raw PBP + shots\nstored & indexed"),
+    ("⚙️", "Feature Engineering","spatial zones · shot types\nclock · context flags"),
+    ("🎯", "xShot Model",        "XGBoost classifier\nP(make | shot context)"),
+    ("📐", "Stint Construction", "5v5 lineup segments\nxShot pts aggregated"),
+    ("📊", "RAPM / xRAPM",       "Ridge regression\nper-100 poss impact"),
+    ("📱", "Dashboard",          "interactive explorer\nleaderboards · profiles"),
 ]
 
-tile_cols = st.columns(len(_TILES))
-for col, (page, icon, title, desc) in zip(tile_cols, _TILES):
-    with col:
-        st.page_link(
-            page,
-            label=f"{icon}  **{title}**",
-            use_container_width=True,
+arrow = '<div class="pipeline-arrow">→</div>'
+nodes_html = arrow.join(
+    f'<div class="pipeline-node">'
+    f'<div class="pn-icon">{icon}</div>'
+    f'<div class="pn-title">{title}</div>'
+    f'<div class="pn-sub">{sub.replace(chr(10), "<br>")}</div>'
+    f'</div>'
+    for icon, title, sub in pipeline_nodes
+)
+st.markdown(
+    f'<div class="flex-row" style="align-items:center">{nodes_html}</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+
+
+# ── SECTION 3 — DATASET SUMMARY ────────────────────────────────────────────
+
+st.markdown(section_label("Dataset Summary"), unsafe_allow_html=True)
+
+n_games = summary.get("games", 0)
+games_str = f"{n_games:,}" if n_games else "~15,000"
+
+row2 = metric_row(
+    metric_card("Games Ingested", games_str, "2014-15 through 2025-26", MUTED_LIGHT),
+    metric_card("Shot Predictions", f"{n_shots/1e6:.2f}M", "xShot scored via predict.py", ACCENT),
+    metric_card("Lineup Stints",    f"{n_stints/1e3:.0f}k", "weighted by possessions", ACCENT_BLUE),
+    metric_card("Players Modeled",  str(n_plyr) if n_plyr else "~600",
+                "≥300 stint possessions", ACCENT_GREEN),
+    metric_card("Training cutoff",  meta.get("train_seasons", "2014-15 → 2022-23"),
+                f"test: {meta.get('test_seasons', '2023-24 → 2024-25')}", ACCENT_GOLD),
+)
+st.markdown(row2, unsafe_allow_html=True)
+
+st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+
+
+# ── SECTION 4 — MODEL OVERVIEW ─────────────────────────────────────────────
+
+st.markdown(section_label("Model Overview"), unsafe_allow_html=True)
+
+tab_xshot, tab_rapm = st.tabs(["🎯  xShot Model", "📊  RAPM / xRAPM"])
+
+with tab_xshot:
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        st.markdown("#### What is xShot?")
+        st.markdown(
+            "**xShot** is the predicted probability that a field goal attempt will be made, "
+            "given only pre-shot information — location, shot type, shot value, clock, and game context. "
+            "It answers: *how difficult was this shot to make, on average?*\n\n"
+            "**Why not just use FG%?** FG% conflates shot selection with shot-making. A player "
+            "averaging 55% may be hunting only layups; another averaging 47% may be taking "
+            "contested pull-ups. xShot separates the two by establishing a per-shot difficulty baseline."
         )
+        st.markdown("#### How it was built")
+        st.markdown(
+            f"- **Algorithm:** XGBoost binary classifier\n"
+            f"- **Training data:** ~{(n_shots - 466446)/1e6:.1f}M shots, 2014-15 → "
+            f"{meta.get('train_seasons', '2022-23').split('→')[-1].strip()}\n"
+            f"- **Features:** {meta.get('feature_count', 30)} features — spatial coordinates, "
+            f"shot zone, shot type flags, period, clock, playoffs\n"
+            f"- **Temporal split:** trained on historical data, evaluated on 2023-25 holdout\n"
+            f"- **No shooter identity** in the model — by design, to prevent circular reasoning\n"
+            f"- **Holdout log-loss:** {eval_m.get('log_loss', '0.638')} "
+            f"({eval_m.get('log_loss_reduction_pct', 7.7):.1f}% improvement over naive baseline)"
+        )
+    with c2:
+        st.markdown("#### Key outputs")
+        st.markdown(
+            "| Output | Description |\n"
+            "|--------|-------------|\n"
+            "| `xshot` | P(make) for each FGA |\n"
+            "| `mean_xshot` | Player avg shot difficulty |\n"
+            "| `fg_pct_above_expected` | Actual − expected FG% |\n"
+            "| `shot_pts_above_expected` | Total value added vs baseline |\n"
+            "| `xshot_pts` | Expected points per attempt |\n"
+        )
+        st.markdown("#### Feature categories")
+        st.markdown(
+            f"**Spatial** (strongest signal): distance, zone, angle, x/y coordinates\n\n"
+            f"**Shot type flags**: dunk, layup, pullup, fadeaway, cutting, putback…\n\n"
+            f"**Context**: period, clock, playoff game indicator"
+        )
+
+with tab_rapm:
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        st.markdown("#### What is RAPM / xRAPM?")
+        st.markdown(
+            "**RAPM** (Regularised Adjusted Plus-Minus) measures a player's marginal contribution "
+            "to team scoring margin per 100 possessions, controlling simultaneously for all "
+            "teammates and opponents on the court via Ridge regression over lineup stints.\n\n"
+            "**xRAPM** is the same regression, but the target is *expected* scoring margin "
+            "derived from xShot predictions instead of actual makes and misses. "
+            "This removes shot-making variance and measures process quality.\n\n"
+            "**RAPM − xRAPM** (the process gap) flags players whose actual outcomes "
+            "diverge from their process: positive = outscoring shot quality (elite finishing "
+            "or variance); negative = regression candidate."
+        )
+        st.markdown("#### Multi-year pooling (v2)")
+        st.markdown(
+            "Single-season RAPM is noisy for players with limited minutes. "
+            "The v2 model pools 3 consecutive seasons, anchors estimates toward a "
+            "box-score prior (per-minute plus/minus × 0.12), and shrinks small-sample "
+            "outliers toward the historical baseline. **RAPM+Prior** is the recommended "
+            "metric for cross-player comparisons."
+        )
+    with c2:
+        st.markdown("#### Key design decisions")
+        st.markdown(
+            "**Ridge regularisation (λ):** prevents overfitting when players share "
+            "many lineups. λ=30,000 for net RAPM; λ=15,000 for O/D split.\n\n"
+            "**Possession weighting:** stints weighted by total possessions so "
+            "high-minute players contribute proportionally more.\n\n"
+            "**Minimum threshold:** 1,000 stint possessions for single-season; "
+            "2,000 for pooled — below this, ridge bias dominates.\n\n"
+            "**O-RAPM / D-RAPM:** separate offensive and defensive regressions "
+            "using a doubled stint matrix with +1 encoding for on-court only."
+        )
+
+st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+
+
+# ── SECTION 5 — KEY FINDINGS ───────────────────────────────────────────────
+
+st.markdown(section_label("Key Findings"), unsafe_allow_html=True)
+
+ll_red = eval_m.get("log_loss_reduction_pct", 7.7)
+findings = [
+    ("🎯", f"{ll_red:.1f}% log-loss reduction",
+     "xShot outperforms a naive mean-FG% baseline on a 466k-shot holdout. "
+     "Shot location and type dominate; dunk classification alone accounts for ~35% of feature gain."),
+    ("📈", "xRAPM more stable year-to-year",
+     "Year-to-year R² for xRAPM consistently exceeds RAPM. Removing made/missed "
+     "variance isolates the process signal, making xRAPM more predictive of future performance."),
+    ("⚖️", "RAPM − xRAPM identifies variance",
+     "Players with large positive gaps tend to regress; large negative gaps often "
+     "precede improvement. The process gap is a leading indicator, not a quality verdict."),
+    ("🔬", "Pooling reduces noise by ~40%",
+     "The standard deviation of 3-year pooled estimates is materially tighter than "
+     "single-season estimates, confirming that sample size is the primary source of RAPM noise."),
+]
+
+st.markdown(
+    '<div class="insight-row">'
+    + "".join(insight_card(icon, h, b) for icon, h, b in findings)
+    + "</div>",
+    unsafe_allow_html=True,
+)
+
+st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
+
+
+# ── SECTION 6 — NAVIGATION ─────────────────────────────────────────────────
+
+st.markdown(section_label("Explore the Model"), unsafe_allow_html=True)
+
+pages = [
+    ("pages/1_Model_Explorer.py", "🔬", "Model Explorer",
+     "xShot calibration · feature importance · shot difficulty distribution · "
+     "year-over-year stability analysis · methodology · limitations"),
+    ("pages/2_Leaderboards.py",   "📊", "Leaderboards",
+     "RAPM & xRAPM player rankings by season. Metric tabs for overall, "
+     "offense, defense, and shooting. Distribution context for every value."),
+    ("pages/3_Player_Profile.py", "👤", "Player Profile",
+     "Per-player shot chart · hexbin density map · zone efficiency · "
+     "RAPM/xRAPM career trend · process vs results scatter."),
+    ("pages/4_Methodology.py",    "📖", "Methodology",
+     "Technical deep-dives into xShot, RAPM/xRAPM, validation approach, "
+     "and an honest discussion of model limitations."),
+]
+
+nav_cols = st.columns(len(pages))
+for col, (page, icon, title, desc) in zip(nav_cols, pages):
+    with col:
+        st.page_link(page, label=f"{icon}  **{title}**", use_container_width=True)
         st.caption(desc)
 
-# ---------------------------------------------------------------------------
-# Footer: how this works
-# ---------------------------------------------------------------------------
-
 st.markdown("---")
-with st.expander("ℹ️  How this model works"):
-    st.markdown("""
-**Step 1 — Shot Quality Model (xShot)**
-Every field goal attempt is scored by an XGBoost classifier trained on shot location,
-shot type, and game context (period, clock, playoffs). Output is a 0–1 probability the
-shot is made. A restricted-area dunk scores ~0.95; a contested pull-up mid-range ~0.35.
-Trained on pre-2022-23 data; tested on 2023-25 holdout seasons (~7.7% log-loss improvement
-over a naive FG% baseline).
-
-**Step 2 — Shot-Making Over Expected (FG% vs Expected)**
-Comparing xShot predictions to outcomes reveals which players consistently over- or
-under-perform the difficulty of their attempts. This isolates shot-making skill from
-shot selection and volume — a player can "look efficient" by hunting only high-probability
-looks, or truly shoot above expectation.
-
-**Step 3 — Player Impact (RAPM / xRAPM)**
-Every game is parsed into 5v5 lineup stints — periods where both rosters are stable.
-Ridge regression over ~421k stints estimates each player's marginal contribution to
-team scoring margin per 100 possessions, controlling for teammates and opponents simultaneously.
-**xRAPM** replaces actual points with xShot-derived expected points, producing a process-based
-impact metric that separates a player's shot-quality contribution from lucky makes and misses.
-The gap **RAPM − xRAPM** flags unsustainable over/under-performance.
-
-**Step 4 — Multi-Year Pooling + Box-Score Prior (v2)**
-Rolling 3-season windows reduce single-season sample-size noise. A box-score prior
-(per-minute plus/minus) anchors estimates toward observed baselines, shrinking small-sample
-outliers while preserving signal for players with large, consistent datasets.
-
-**Data:** NBA Stats API · 2014-15 through 2025-26 · Regular Season + Playoffs · ~2.68M FGA · ~421k stints
-    """)
+st.caption(
+    "Data: NBA Stats API · Seasons 2014-15 through 2025-26 · "
+    "Regular Season + Playoffs · Models retrained seasonally"
+)

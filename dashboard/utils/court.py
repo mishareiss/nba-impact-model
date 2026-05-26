@@ -7,11 +7,20 @@ Coordinate system (play_by_play legacy coordinates):
   Basket centre ≈ (0, 0)
 
 All court dimensions are in tenths-of-feet to match the data.
+
+Public API
+----------
+court_traces()       — list of go.Scatter traces drawing the half-court lines
+shot_scatter_fig()   — per-shot scatter coloured by make/miss and xShot surprise
+shot_hexbin_fig()    — 2-D density / efficiency heatmap with four display modes
 """
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 
 # ---------------------------------------------------------------------------
@@ -353,3 +362,180 @@ def _apply_court_layout(fig: go.Figure, player_name: str,
         ),
         hoverlabel=dict(bgcolor="rgba(30,30,40,0.9)", font_size=12),
     )
+
+
+# ---------------------------------------------------------------------------
+# Hexbin / density chart
+# ---------------------------------------------------------------------------
+
+HexbinMode = Literal["volume", "xshot", "fg_pct", "fg_vs_expected"]
+
+_HEXBIN_CONFIG: dict[str, dict] = {
+    "volume": dict(
+        label="Shot Volume",
+        colorscale="Blues",
+        reversescale=False,
+        colorbar_title="Attempts",
+        zmid=None,
+    ),
+    "xshot": dict(
+        label="Avg xShot (Shot Difficulty)",
+        colorscale=[[0, "#2C3E50"], [0.5, "#F4D03F"], [1, "#E8462A"]],
+        reversescale=False,
+        colorbar_title="Avg xShot",
+        zmid=None,
+    ),
+    "fg_pct": dict(
+        label="Actual FG%",
+        colorscale=[[0, "#922B21"], [0.5, "#F4D03F"], [1, "#1E8449"]],
+        reversescale=False,
+        colorbar_title="FG%",
+        zmid=None,
+    ),
+    "fg_vs_expected": dict(
+        label="FG% Above Expected",
+        colorscale=[[0, "#922B21"], [0.5, "#2C3E50"], [1, "#1E8449"]],
+        reversescale=False,
+        colorbar_title="FG% vs Expected",
+        zmid=0,
+    ),
+}
+
+# Bin counts: fewer bins = more readable heat zones
+_NBINS_X = 25
+_NBINS_Y = 28
+
+
+def shot_hexbin_fig(
+    df_shots: pd.DataFrame,
+    mode: HexbinMode = "volume",
+    player_name: str = "",
+    season: str = "",
+    season_type: str = "",
+    team_color: str = "#E8462A",
+    min_attempts: int = 2,
+) -> go.Figure:
+    """
+    Build a court heatmap from individual shot records.
+
+    Parameters
+    ----------
+    df_shots     : DataFrame with x_legacy, y_legacy, xshot, shot_made columns.
+    mode         : "volume"         → bin count (shot frequency)
+                   "xshot"          → mean predicted make probability per bin
+                   "fg_pct"         → actual make rate per bin
+                   "fg_vs_expected" → (fg_pct − xshot) per bin (diverging scale)
+    min_attempts : bins with fewer shots are masked to avoid small-sample noise.
+    """
+    fig = go.Figure()
+    for t in court_traces():
+        fig.add_trace(t)
+
+    if df_shots.empty:
+        _apply_court_layout(fig, player_name, season, season_type, 0)
+        return fig
+
+    cfg = _HEXBIN_CONFIG[mode]
+    df = df_shots.copy()
+
+    # --- bin the court into a grid ---
+    x_edges = np.linspace(CHART_X_RANGE[0], CHART_X_RANGE[1], _NBINS_X + 1)
+    y_edges = np.linspace(CHART_Y_RANGE[0], min(CHART_Y_RANGE[1], 380), _NBINS_Y + 1)
+
+    df["x_bin"] = pd.cut(df["x_legacy"], bins=x_edges, labels=False)
+    df["y_bin"] = pd.cut(df["y_legacy"], bins=y_edges, labels=False)
+    df = df.dropna(subset=["x_bin", "y_bin"])
+    df["x_bin"] = df["x_bin"].astype(int)
+    df["y_bin"] = df["y_bin"].astype(int)
+
+    # Aggregate per bin
+    agg = df.groupby(["x_bin", "y_bin"]).agg(
+        attempts  = ("shot_made", "count"),
+        makes     = ("shot_made", "sum"),
+        mean_xshot= ("xshot",     "mean"),
+    ).reset_index()
+    agg = agg[agg["attempts"] >= min_attempts].copy()
+    agg["fg_pct"]         = agg["makes"] / agg["attempts"]
+    agg["fg_vs_expected"] = agg["fg_pct"] - agg["mean_xshot"]
+
+    # Map bin indices back to court coordinates (bin centres)
+    x_centres = (x_edges[:-1] + x_edges[1:]) / 2
+    y_centres = (y_edges[:-1] + y_edges[1:]) / 2
+    agg["x"] = agg["x_bin"].map(lambda i: x_centres[i])
+    agg["y"] = agg["y_bin"].map(lambda i: y_centres[i])
+
+    # Select the z-value based on mode
+    z_col = {
+        "volume":         "attempts",
+        "xshot":          "mean_xshot",
+        "fg_pct":         "fg_pct",
+        "fg_vs_expected": "fg_vs_expected",
+    }[mode]
+
+    z = agg[z_col].values
+    zmid = cfg["zmid"]
+
+    heatmap_kwargs: dict = dict(
+        x=agg["x"],
+        y=agg["y"],
+        z=z,
+        colorscale=cfg["colorscale"],
+        reversescale=cfg["reversescale"],
+        colorbar=dict(
+            title=dict(text=cfg["colorbar_title"], side="right"),
+            thickness=14, len=0.6, x=1.01,
+            tickfont=dict(size=10),
+        ),
+        hovertemplate=(
+            f"Attempts: %{{customdata[0]}}<br>"
+            f"FG%: %{{customdata[1]:.1%}}<br>"
+            f"Avg xShot: %{{customdata[2]:.3f}}<br>"
+            f"FG% vs Expected: %{{customdata[3]:+.3f}}<extra></extra>"
+        ),
+        customdata=list(zip(
+            agg["attempts"].round(0).astype(int),
+            agg["fg_pct"].round(4),
+            agg["mean_xshot"].round(4),
+            agg["fg_vs_expected"].round(4),
+        )),
+        showscale=True,
+        opacity=0.85,
+    )
+    if zmid is not None:
+        heatmap_kwargs["zmid"] = zmid
+
+    # Use a square marker approximation via go.Scatter with large square markers
+    # (go.Heatmap requires a uniform grid; our bins are uniform so we can use it)
+    bin_w = float(x_edges[1] - x_edges[0])
+    bin_h = float(y_edges[1] - y_edges[0])
+    fig.add_trace(go.Scatter(
+        x=agg["x"], y=agg["y"],
+        mode="markers",
+        marker=dict(
+            symbol="square",
+            size=max(6, int(min(bin_w, bin_h) * 0.09)),
+            color=z,
+            colorscale=cfg["colorscale"],
+            reversescale=cfg["reversescale"],
+            colorbar=heatmap_kwargs["colorbar"],
+            showscale=True,
+            opacity=0.82,
+            **({"cmid": zmid} if zmid is not None else {}),
+        ),
+        hovertemplate=heatmap_kwargs["hovertemplate"],
+        customdata=heatmap_kwargs["customdata"],
+        showlegend=False,
+        name=cfg["label"],
+    ))
+
+    _apply_court_layout(fig, player_name, season, season_type, len(df_shots))
+
+    # Override title to include mode label
+    mode_label = cfg["label"]
+    fig.update_layout(
+        title=dict(
+            text=fig.layout.title.text + f"  ·  {mode_label}",
+            font=dict(size=14), x=0.5, xanchor="center",
+        )
+    )
+    return fig
