@@ -137,6 +137,8 @@ def build_player_career_stats():
         -- Impact ratings
         pir.xrapm,
         pir.rapm,
+        pir.o_rapm,
+        pir.d_rapm,
         ROUND((pir.rapm - pir.xrapm)::numeric, 4)     AS rapm_minus_xrapm,
         pir.possessions,
         -- Box score
@@ -173,12 +175,64 @@ def build_player_career_stats():
     logger.info("player_career_stats materialized view created")
 
 
+def build_player_shot_zones():
+    """
+    Creates (or replaces) the player_shot_zones materialized view.
+
+    Pre-aggregates shot quality metrics by (player, season, season_type, shot_zone)
+    so zone-efficiency bar charts and shot profile comparisons can be served from a
+    fast index scan rather than a 2.68M-row join every page load.
+
+    Each row = one player's shot zone stats for one season / season type.
+    """
+    sql = """
+    DROP MATERIALIZED VIEW IF EXISTS player_shot_zones;
+
+    CREATE MATERIALIZED VIEW player_shot_zones AS
+    SELECT
+        sp.person_id,
+        pl.full_name                                                        AS player_name,
+        sp.season,
+        sp.season_type,
+        s.shot_zone,
+        s.shot_value,
+        COUNT(*)                                                            AS attempts,
+        SUM(sp.shot_made)                                                   AS makes,
+        ROUND(AVG(sp.xshot)::numeric, 4)                                    AS mean_xshot,
+        ROUND(AVG(sp.shot_made::float)::numeric, 4)                         AS fg_pct,
+        ROUND((AVG(sp.shot_made::float) - AVG(sp.xshot))::numeric, 4)      AS fg_pct_vs_expected,
+        ROUND(SUM(sp.shot_made * sp.shot_value)::numeric, 1)               AS actual_pts,
+        ROUND(SUM(sp.xshot * sp.shot_value)::numeric, 1)                   AS expected_pts,
+        ROUND((SUM(sp.shot_made * sp.shot_value) - SUM(sp.xshot * sp.shot_value))::numeric, 1)
+                                                                            AS pts_above_expected
+    FROM shot_predictions sp
+    JOIN shots s
+        ON  s.game_id    = sp.game_id
+        AND s.action_id  = sp.action_id
+    LEFT JOIN players pl ON pl.person_id = sp.person_id
+    GROUP BY sp.person_id, pl.full_name, sp.season, sp.season_type, s.shot_zone, s.shot_value;
+
+    CREATE INDEX idx_psz_player  ON player_shot_zones (person_id, season, season_type);
+    CREATE INDEX idx_psz_season  ON player_shot_zones (season, season_type);
+    CREATE INDEX idx_psz_zone    ON player_shot_zones (shot_zone);
+    """
+
+    with engine.begin() as conn:
+        for stmt in sql.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(text(stmt))
+
+    logger.info("player_shot_zones materialized view created")
+
+
 def refresh_analytics_views():
-    """Refresh both analytics views after new data is ingested."""
+    """Refresh all analytics views after new data is ingested."""
     with engine.begin() as conn:
         conn.execute(text("REFRESH MATERIALIZED VIEW team_shot_quality"))
         conn.execute(text("REFRESH MATERIALIZED VIEW player_career_stats"))
         conn.execute(text("REFRESH MATERIALIZED VIEW player_impact_leaderboard"))
+        conn.execute(text("REFRESH MATERIALIZED VIEW player_shot_zones"))
     logger.info("Analytics views refreshed")
 
 
@@ -186,6 +240,7 @@ def main():
     logger.info("Building analytics materialized views...")
     build_team_shot_quality()
     build_player_career_stats()
+    build_player_shot_zones()
     logger.info("Done")
 
 

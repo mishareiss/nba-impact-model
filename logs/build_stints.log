@@ -1,0 +1,34 @@
+2026-05-17 18:51:09 | INFO | __main__ | Processing 15,370 games
+2026-05-17 18:51:25 | INFO | __main__ | [500/15370] 13,937 stints so far
+2026-05-17 18:51:41 | INFO | __main__ | [1000/15370] 27,441 stints so far
+2026-05-17 18:51:56 | INFO | __main__ | [1500/15370] 41,234 stints so far
+2026-05-17 18:52:12 | INFO | __main__ | [2000/15370] 55,043 stints so far
+2026-05-17 18:52:30 | INFO | __main__ | [2500/15370] 68,578 stints so far
+2026-05-17 18:52:46 | INFO | __main__ | [3000/15370] 82,454 stints so far
+2026-05-17 18:53:04 | INFO | __main__ | [3500/15370] 95,999 stints so far
+2026-05-17 18:53:24 | INFO | __main__ | [4000/15370] 109,447 stints so far
+2026-05-17 18:53:40 | INFO | __main__ | [4500/15370] 123,011 stints so far
+2026-05-17 18:53:56 | INFO | __main__ | [5000/15370] 136,559 stints so far
+2026-05-17 18:54:11 | INFO | __main__ | [5500/15370] 150,319 stints so far
+2026-05-17 18:54:27 | INFO | __main__ | [6000/15370] 164,157 stints so far
+2026-05-17 18:54:43 | INFO | __main__ | [6500/15370] 178,290 stints so far
+2026-05-17 18:54:59 | INFO | __main__ | [7000/15370] 192,422 stints so far
+2026-05-17 18:55:15 | INFO | __main__ | [7500/15370] 206,400 stints so far
+2026-05-17 18:55:31 | INFO | __main__ | [8000/15370] 219,646 stints so far
+2026-05-17 18:55:47 | INFO | __main__ | [8500/15370] 233,027 stints so far
+2026-05-17 18:56:02 | INFO | __main__ | [9000/15370] 246,788 stints so far
+2026-05-17 18:56:17 | INFO | __main__ | [9500/15370] 259,970 stints so far
+2026-05-17 18:56:33 | INFO | __main__ | [10000/15370] 273,836 stints so far
+2026-05-17 18:56:49 | INFO | __main__ | [10500/15370] 287,274 stints so far
+2026-05-17 18:57:04 | INFO | __main__ | [11000/15370] 300,611 stints so far
+2026-05-17 18:57:19 | INFO | __main__ | [11500/15370] 313,846 stints so far
+2026-05-17 18:57:34 | INFO | __main__ | [12000/15370] 326,738 stints so far
+2026-05-17 18:57:50 | INFO | __main__ | [12500/15370] 340,568 stints so far
+2026-05-17 18:58:07 | INFO | __main__ | [13000/15370] 354,198 stints so far
+2026-05-17 18:58:24 | INFO | __main__ | [13500/15370] 368,439 stints so far
+2026-05-17 18:58:41 | INFO | __main__ | [14000/15370] 382,864 stints so far
+2026-05-17 18:58:52 | WARNING | __main__ | Ambiguous sub: 'Wagner' team=1610612753 candidates=[1629021, 1630532]
+2026-05-17 18:58:58 | INFO | __main__ | [14500/15370] 397,167 stints so far
+2026-05-17 18:59:14 | INFO | __main__ | [15000/15370] 411,494 stints so far
+2026-05-17 18:59:26 | INFO | __main__ | Done - 421,849 stints inserted, 0 errors
+

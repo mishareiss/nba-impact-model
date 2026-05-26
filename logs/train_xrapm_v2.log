@@ -1,0 +1,143 @@
+2026-05-22 12:12:26 | INFO | __main__ | player_impact_pooled table ready
+2026-05-22 12:12:27 | INFO | __main__ | Loaded 86,029 pooled stints (['2014-15', '2015-16', '2016-17']) Regular Season
+2026-05-22 12:12:27 | INFO | __main__ | Player pool: 662 players
+2026-05-22 12:12:28 | INFO | __main__ | Matrix: (86029, 662), 860,290 nonzero entries
+2026-05-22 12:12:28 | INFO | __main__ | Prior γ: min=-7.075 max=13.057 mean=-0.000
+2026-05-22 12:12:29 | INFO | __main__ | Inserting 440 ratings for 2016-17 Regular Season
+2026-05-22 12:12:29 | INFO | __main__ | Pooled RAPM top 5:      [(201939, 6.9956), (2738, 5.555), (201142, 5.0755), (200746, 4.6865), (101108, 4.5403)]
+2026-05-22 12:12:29 | INFO | __main__ | RAPM+prior   top 5:     [(201939, 7.963), (201142, 6.2856), (2738, 6.2673), (101108, 5.5802), (203110, 5.3431)]
+2026-05-22 12:12:29 | INFO | __main__ | Loaded 5,925 pooled stints (['2014-15', '2015-16', '2016-17']) Playoffs
+2026-05-22 12:12:29 | INFO | __main__ | Player pool: 361 players
+2026-05-22 12:12:29 | INFO | __main__ | Matrix: (5925, 361), 59,250 nonzero entries
+2026-05-22 12:12:29 | INFO | __main__ | Prior γ: min=-9.828 max=15.644 mean=-0.000
+2026-05-22 12:12:29 | INFO | __main__ | Inserting 24 ratings for 2016-17 Playoffs
+2026-05-22 12:12:29 | INFO | __main__ | Pooled RAPM top 5:      [(203110, 2.1488), (201142, 2.1447), (2738, 2.0472), (201939, 1.9064), (2733, 1.7089)]
+2026-05-22 12:12:29 | INFO | __main__ | RAPM+prior   top 5:     [(201142, 3.5899), (203110, 3.493), (201939, 3.0564), (2733, 2.8204), (2738, 2.6977)]
+2026-05-22 12:12:30 | INFO | __main__ | Loaded 85,924 pooled stints (['2015-16', '2016-17', '2017-18']) Regular Season
+2026-05-22 12:12:30 | INFO | __main__ | Player pool: 706 players
+2026-05-22 12:12:31 | INFO | __main__ | Matrix: (85924, 706), 859,240 nonzero entries
+2026-05-22 12:12:31 | INFO | __main__ | Prior γ: min=-15.645 max=56.048 mean=-0.000
+2026-05-22 12:12:31 | INFO | __main__ | Inserting 448 ratings for 2017-18 Regular Season
+2026-05-22 12:12:31 | INFO | __main__ | Pooled RAPM top 5:      [(201939, 5.5645), (201142, 4.7826), (2738, 4.1931), (202695, 3.7816), (200746, 3.6991)]
+2026-05-22 12:12:31 | INFO | __main__ | RAPM+prior   top 5:     [(201939, 6.5924), (201142, 5.5849), (2738, 4.8611), (101108, 4.7587), (202695, 4.6751)]
+2026-05-22 12:12:32 | INFO | __main__ | Loaded 5,916 pooled stints (['2015-16', '2016-17', '2017-18']) Playoffs
+2026-05-22 12:12:32 | INFO | __main__ | Player pool: 355 players
+2026-05-22 12:12:32 | INFO | __main__ | Matrix: (5916, 355), 59,160 nonzero entries
+2026-05-22 12:12:32 | INFO | __main__ | Prior γ: min=-12.304 max=15.703 mean=-0.000
+2026-05-22 12:12:32 | INFO | __main__ | Inserting 28 ratings for 2017-18 Playoffs
+2026-05-22 12:12:32 | INFO | __main__ | Pooled RAPM top 5:      [(201142, 2.3346), (203110, 1.7471), (201939, 1.5533), (2738, 1.5481), (2733, 1.3652)]
+2026-05-22 12:12:32 | INFO | __main__ | RAPM+prior   top 5:     [(201142, 3.7177), (203110, 3.1511), (201939, 3.0218), (2738, 2.5924), (2733, 2.4213)]
+2026-05-22 12:12:32 | INFO | __main__ | Loaded 86,551 pooled stints (['2016-17', '2017-18', '2018-19']) Regular Season
+2026-05-22 12:12:32 | INFO | __main__ | Player pool: 733 players
+2026-05-22 12:12:33 | INFO | __main__ | Matrix: (86551, 733), 865,510 nonzero entries
+2026-05-22 12:12:33 | INFO | __main__ | Prior γ: min=-8.447 max=8.424 mean=0.000
+2026-05-22 12:12:34 | INFO | __main__ | Inserting 450 ratings for 2018-19 Regular Season
+2026-05-22 12:12:34 | INFO | __main__ | Pooled RAPM top 5:      [(201939, 5.7045), (2738, 3.8961), (201935, 3.0913), (101108, 2.829), (203110, 2.6389)]
+2026-05-22 12:12:34 | INFO | __main__ | RAPM+prior   top 5:     [(201939, 6.8434), (2738, 4.6898), (101108, 3.8644), (201935, 3.5109), (203110, 3.4594)]
+2026-05-22 12:12:34 | INFO | __main__ | Loaded 5,900 pooled stints (['2016-17', '2017-18', '2018-19']) Playoffs
+2026-05-22 12:12:34 | INFO | __main__ | Player pool: 366 players
+2026-05-22 12:12:34 | INFO | __main__ | Matrix: (5900, 366), 59,000 nonzero entries
+2026-05-22 12:12:34 | INFO | __main__ | Prior γ: min=-12.375 max=18.425 mean=-0.000
+2026-05-22 12:12:34 | INFO | __main__ | Inserting 33 ratings for 2018-19 Playoffs
+2026-05-22 12:12:34 | INFO | __main__ | Pooled RAPM top 5:      [(201142, 1.6704), (201939, 1.5098), (203110, 1.3394), (2738, 1.1125), (202695, 1.0864)]
+2026-05-22 12:12:34 | INFO | __main__ | RAPM+prior   top 5:     [(201142, 3.1258), (201939, 2.8481), (203110, 2.6451), (202695, 2.3961), (2738, 2.2374)]
+2026-05-22 12:12:34 | INFO | __main__ | Loaded 84,052 pooled stints (['2017-18', '2018-19', '2019-20']) Regular Season
+2026-05-22 12:12:34 | INFO | __main__ | Player pool: 765 players
+2026-05-22 12:12:35 | INFO | __main__ | Matrix: (84052, 765), 840,520 nonzero entries
+2026-05-22 12:12:35 | INFO | __main__ | Prior γ: min=-13.225 max=14.189 mean=-0.000
+2026-05-22 12:12:36 | INFO | __main__ | Inserting 458 ratings for 2019-20 Regular Season
+2026-05-22 12:12:36 | INFO | __main__ | Pooled RAPM top 5:      [(201939, 2.3343), (201980, 1.6607), (203497, 1.5917), (202339, 1.5902), (1628369, 1.5412)]
+2026-05-22 12:12:36 | INFO | __main__ | RAPM+prior   top 5:     [(201939, 3.6243), (201980, 2.5029), (1628978, 2.4831), (203507, 2.4752), (203954, 2.4074)]
+2026-05-22 12:12:36 | INFO | __main__ | Loaded 6,103 pooled stints (['2017-18', '2018-19', '2019-20']) Playoffs
+2026-05-22 12:12:36 | INFO | __main__ | Player pool: 374 players
+2026-05-22 12:12:36 | INFO | __main__ | Matrix: (6103, 374), 61,030 nonzero entries
+2026-05-22 12:12:36 | INFO | __main__ | Prior γ: min=-12.530 max=14.873 mean=0.000
+2026-05-22 12:12:36 | INFO | __main__ | Inserting 31 ratings for 2019-20 Playoffs
+2026-05-22 12:12:36 | INFO | __main__ | Pooled RAPM top 5:      [(201142, 0.6568), (202695, 0.5827), (201935, 0.5686), (203076, 0.5302), (201980, 0.5113)]
+2026-05-22 12:12:36 | INFO | __main__ | RAPM+prior   top 5:     [(201142, 1.9504), (203110, 1.5936), (201980, 1.591), (203076, 1.5791), (201939, 1.5375)]
+2026-05-22 12:12:36 | INFO | __main__ | Loaded 80,598 pooled stints (['2018-19', '2019-20', '2020-21']) Regular Season
+2026-05-22 12:12:36 | INFO | __main__ | Player pool: 747 players
+2026-05-22 12:12:37 | INFO | __main__ | Matrix: (80598, 747), 805,980 nonzero entries
+2026-05-22 12:12:37 | INFO | __main__ | Prior γ: min=-17.236 max=6.676 mean=-0.000
+2026-05-22 12:12:38 | INFO | __main__ | Inserting 466 ratings for 2020-21 Regular Season
+2026-05-22 12:12:38 | INFO | __main__ | Pooled RAPM top 5:      [(202695, 2.1521), (203497, 2.1503), (203114, 2.0139), (201980, 1.9033), (201939, 1.7805)]
+2026-05-22 12:12:38 | INFO | __main__ | RAPM+prior   top 5:     [(202695, 3.2027), (203497, 2.9629), (203507, 2.9195), (201980, 2.8625), (201939, 2.8051)]
+2026-05-22 12:12:38 | INFO | __main__ | Loaded 6,156 pooled stints (['2018-19', '2019-20', '2020-21']) Playoffs
+2026-05-22 12:12:38 | INFO | __main__ | Player pool: 399 players
+2026-05-22 12:12:38 | INFO | __main__ | Matrix: (6156, 399), 61,560 nonzero entries
+2026-05-22 12:12:38 | INFO | __main__ | Prior γ: min=-12.503 max=14.825 mean=0.000
+2026-05-22 12:12:38 | INFO | __main__ | Inserting 30 ratings for 2020-21 Playoffs
+2026-05-22 12:12:38 | INFO | __main__ | Pooled RAPM top 5:      [(201980, 0.8191), (203114, 0.7332), (202695, 0.5886), (201572, 0.5763), (203507, 0.4924)]
+2026-05-22 12:12:38 | INFO | __main__ | RAPM+prior   top 5:     [(201980, 2.1116), (203954, 1.8691), (203114, 1.5602), (203076, 1.4792), (203507, 1.4167)]
+2026-05-22 12:12:38 | INFO | __main__ | Loaded 80,105 pooled stints (['2019-20', '2020-21', '2021-22']) Regular Season
+2026-05-22 12:12:38 | INFO | __main__ | Player pool: 761 players
+2026-05-22 12:12:39 | INFO | __main__ | Matrix: (80105, 761), 801,050 nonzero entries
+2026-05-22 12:12:39 | INFO | __main__ | Prior γ: min=-17.215 max=14.077 mean=0.000
+2026-05-22 12:12:40 | INFO | __main__ | Inserting 466 ratings for 2021-22 Regular Season
+2026-05-22 12:12:40 | INFO | __main__ | Pooled RAPM top 5:      [(1628369, 1.9805), (203497, 1.9694), (202695, 1.9181), (201950, 1.7609), (203114, 1.6437)]
+2026-05-22 12:12:40 | INFO | __main__ | RAPM+prior   top 5:     [(202695, 3.3725), (1628369, 2.8582), (203497, 2.8286), (203507, 2.5921), (201950, 2.5321)]
+2026-05-22 12:12:40 | INFO | __main__ | Loaded 6,197 pooled stints (['2019-20', '2020-21', '2021-22']) Playoffs
+2026-05-22 12:12:40 | INFO | __main__ | Player pool: 387 players
+2026-05-22 12:12:40 | INFO | __main__ | Matrix: (6197, 387), 61,970 nonzero entries
+2026-05-22 12:12:40 | INFO | __main__ | Prior γ: min=-12.690 max=14.932 mean=0.000
+2026-05-22 12:12:40 | INFO | __main__ | Inserting 27 ratings for 2021-22 Playoffs
+2026-05-22 12:12:40 | INFO | __main__ | Pooled RAPM top 5:      [(1627759, 0.5723), (201950, 0.5066), (200782, 0.4271), (203076, 0.3954), (1626164, 0.3692)]
+2026-05-22 12:12:40 | INFO | __main__ | RAPM+prior   top 5:     [(203076, 1.5617), (2544, 1.4302), (201950, 1.3783), (1627759, 1.2649), (203114, 1.2434)]
+2026-05-22 12:12:40 | INFO | __main__ | Loaded 82,761 pooled stints (['2020-21', '2021-22', '2022-23']) Regular Season
+2026-05-22 12:12:40 | INFO | __main__ | Player pool: 770 players
+2026-05-22 12:12:41 | INFO | __main__ | Matrix: (82761, 770), 827,610 nonzero entries
+2026-05-22 12:12:41 | INFO | __main__ | Prior γ: min=-17.139 max=14.154 mean=-0.000
+2026-05-22 12:12:42 | INFO | __main__ | Inserting 468 ratings for 2022-23 Regular Season
+2026-05-22 12:12:42 | INFO | __main__ | Pooled RAPM top 5:      [(201950, 2.506), (1628369, 2.2431), (203954, 1.9526), (203497, 1.9149), (202695, 1.7617)]
+2026-05-22 12:12:42 | INFO | __main__ | RAPM+prior   top 5:     [(201950, 3.5191), (1628369, 3.0563), (202695, 3.0536), (1629008, 3.0069), (203954, 3.0065)]
+2026-05-22 12:12:42 | INFO | __main__ | Loaded 6,061 pooled stints (['2020-21', '2021-22', '2022-23']) Playoffs
+2026-05-22 12:12:42 | INFO | __main__ | Player pool: 374 players
+2026-05-22 12:12:42 | INFO | __main__ | Matrix: (6061, 374), 60,610 nonzero entries
+2026-05-22 12:12:42 | INFO | __main__ | Prior γ: min=-12.544 max=8.704 mean=-0.000
+2026-05-22 12:12:42 | INFO | __main__ | Inserting 39 ratings for 2022-23 Playoffs
+2026-05-22 12:12:43 | INFO | __main__ | Pooled RAPM top 5:      [(201950, 0.491), (1627759, 0.4902), (1628971, 0.4466), (1629216, 0.4273), (201143, 0.3897)]
+2026-05-22 12:12:43 | INFO | __main__ | RAPM+prior   top 5:     [(201950, 1.4186), (203954, 1.3997), (201143, 1.399), (1629216, 1.3959), (1626172, 1.3364)]
+2026-05-22 12:12:43 | INFO | __main__ | Loaded 86,034 pooled stints (['2021-22', '2022-23', '2023-24']) Regular Season
+2026-05-22 12:12:43 | INFO | __main__ | Player pool: 802 players
+2026-05-22 12:12:44 | INFO | __main__ | Matrix: (86034, 802), 860,340 nonzero entries
+2026-05-22 12:12:44 | INFO | __main__ | Prior γ: min=-14.423 max=14.134 mean=0.000
+2026-05-22 12:12:45 | INFO | __main__ | Inserting 466 ratings for 2023-24 Regular Season
+2026-05-22 12:12:45 | INFO | __main__ | Pooled RAPM top 5:      [(1628369, 3.0112), (201950, 2.3556), (203932, 2.0201), (203954, 1.9377), (1626164, 1.7935)]
+2026-05-22 12:12:45 | INFO | __main__ | RAPM+prior   top 5:     [(1628369, 3.7299), (201950, 3.301), (203932, 3.0731), (203954, 2.9384), (203999, 2.9258)]
+2026-05-22 12:12:45 | INFO | __main__ | Loaded 5,946 pooled stints (['2021-22', '2022-23', '2023-24']) Playoffs
+2026-05-22 12:12:45 | INFO | __main__ | Player pool: 377 players
+2026-05-22 12:12:45 | INFO | __main__ | Matrix: (5946, 377), 59,460 nonzero entries
+2026-05-22 12:12:45 | INFO | __main__ | Prior γ: min=-15.761 max=10.862 mean=-0.000
+2026-05-22 12:12:45 | INFO | __main__ | Inserting 30 ratings for 2023-24 Playoffs
+2026-05-22 12:12:45 | INFO | __main__ | Pooled RAPM top 5:      [(201143, 0.6764), (1627759, 0.5627), (201950, 0.4992), (1628369, 0.4899), (1627750, 0.3915)]
+2026-05-22 12:12:45 | INFO | __main__ | RAPM+prior   top 5:     [(201143, 1.5813), (201950, 1.3421), (1627750, 1.2893), (1629008, 1.2718), (1626172, 1.2616)]
+2026-05-22 12:12:45 | INFO | __main__ | Loaded 86,341 pooled stints (['2022-23', '2023-24', '2024-25']) Regular Season
+2026-05-22 12:12:45 | INFO | __main__ | Player pool: 758 players
+2026-05-22 12:12:46 | INFO | __main__ | Matrix: (86341, 758), 863,410 nonzero entries
+2026-05-22 12:12:46 | INFO | __main__ | Prior γ: min=-12.603 max=8.847 mean=-0.000
+2026-05-22 12:12:47 | INFO | __main__ | Inserting 471 ratings for 2024-25 Regular Season
+2026-05-22 12:12:47 | INFO | __main__ | Pooled RAPM top 5:      [(1628369, 2.231), (203932, 2.0143), (1628983, 1.9656), (1630198, 1.9306), (1630202, 1.8202)]
+2026-05-22 12:12:47 | INFO | __main__ | RAPM+prior   top 5:     [(203932, 2.9937), (203999, 2.9193), (1630198, 2.7025), (1628369, 2.5345), (1628983, 2.3868)]
+2026-05-22 12:12:47 | INFO | __main__ | Loaded 5,955 pooled stints (['2022-23', '2023-24', '2024-25']) Playoffs
+2026-05-22 12:12:47 | INFO | __main__ | Player pool: 372 players
+2026-05-22 12:12:47 | INFO | __main__ | Matrix: (5955, 372), 59,550 nonzero entries
+2026-05-22 12:12:47 | INFO | __main__ | Prior γ: min=-17.097 max=10.402 mean=0.000
+2026-05-22 12:12:47 | INFO | __main__ | Inserting 34 ratings for 2024-25 Playoffs
+2026-05-22 12:12:47 | INFO | __main__ | Pooled RAPM top 5:      [(1628369, 0.7726), (201143, 0.6071), (1630169, 0.6014), (1628983, 0.5993), (1627750, 0.5818)]
+2026-05-22 12:12:47 | INFO | __main__ | RAPM+prior   top 5:     [(1631096, 1.8509), (1630169, 1.7793), (1628369, 1.7317), (1641717, 1.6952), (203497, 1.6153)]
+2026-05-22 12:12:48 | INFO | __main__ | Loaded 88,487 pooled stints (['2023-24', '2024-25', '2025-26']) Regular Season
+2026-05-22 12:12:48 | INFO | __main__ | Player pool: 791 players
+2026-05-22 12:12:49 | INFO | __main__ | Matrix: (88487, 791), 884,870 nonzero entries
+2026-05-22 12:12:49 | INFO | __main__ | Prior γ: min=-13.949 max=8.926 mean=-0.000
+2026-05-22 12:12:49 | INFO | __main__ | Inserting 480 ratings for 2025-26 Regular Season
+2026-05-22 12:12:49 | INFO | __main__ | Pooled RAPM top 5:      [(1628983, 2.9303), (1630202, 2.5717), (203999, 2.0355), (1630198, 1.8691), (203932, 1.8643)]
+2026-05-22 12:12:49 | INFO | __main__ | RAPM+prior   top 5:     [(1628983, 3.5115), (203999, 3.1251), (1630202, 2.9413), (203932, 2.9079), (1641705, 2.7742)]
+2026-05-22 12:12:49 | INFO | __main__ | Loaded 4,412 pooled stints (['2023-24', '2024-25', '2025-26']) Playoffs
+2026-05-22 12:12:49 | INFO | __main__ | Player pool: 356 players
+2026-05-22 12:12:50 | INFO | __main__ | Matrix: (4412, 356), 44,120 nonzero entries
+2026-05-22 12:12:50 | INFO | __main__ | Prior γ: min=-17.124 max=8.436 mean=0.000
+2026-05-22 12:12:50 | INFO | __main__ | Inserting 25 ratings for 2025-26 Playoffs
+2026-05-22 12:12:50 | INFO | __main__ | Pooled RAPM top 5:      [(1628369, 0.7607), (1628983, 0.7062), (1630169, 0.6138), (1631096, 0.5793), (201950, 0.5294)]
+2026-05-22 12:12:50 | INFO | __main__ | RAPM+prior   top 5:     [(1628369, 1.9172), (1631096, 1.8724), (1630169, 1.8324), (1641717, 1.6589), (1628983, 1.5932)]
+2026-05-22 12:12:50 | INFO | __main__ | Done
+

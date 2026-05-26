@@ -1,5 +1,5 @@
 """
-Player Profile page: season-over-season trends + Baseball Savant-style percentile chart.
+Player Profile page: season-over-season trends, percentile profile, and shot chart.
 """
 import sys
 from pathlib import Path
@@ -17,141 +17,74 @@ from dashboard.utils.queries import (
     get_player_names, get_player_career, get_player_pooled, get_league_distribution
 )
 from dashboard.utils.nba_static import player_headshot_url, team_color
+from dashboard.utils.viz import (
+    percentile_bar_chart, zone_efficiency_chart, zone_frequency_chart,
+    impact_trend_chart, shot_quality_trend, TIER_LEGEND
+)
+from dashboard.utils.shot_queries import get_player_shots, get_player_shot_zones, get_league_zone_averages
+from dashboard.utils.archetypes import classify, stability_flags
+from dashboard.utils.court import shot_scatter_fig
 
 st.set_page_config(page_title="Player Profile · NBA Impact", page_icon="👤", layout="wide")
 st.title("👤 Player Profile")
 
 
-# ── Percentile chart helper ───────────────────────────────────────────────────
+# ── Percentile chart config ────────────────────────────────────────────────────
 
-METRIC_GROUPS = [
-    # (col, display_label, fmt_spec, higher_is_better)
-    ("rapm",                   "RAPM — Overall Impact",          "+.2f", True),
-    ("xrapm",                  "xRAPM — Expected Impact",        "+.2f", True),
-    ("ppg",                    "Points Per Game",                ".1f",  True),
-    ("apg",                    "Assists Per Game",               ".1f",  True),
-    ("rpg",                    "Rebounds Per Game",              ".1f",  True),
-    ("fg_pct_above_expected",  "FG% vs Expected (Shot-Making)",  "+.3f", True),
-    ("shot_pts_above_expected","Points Above Expected",          "+.0f", True),
-    ("mean_xshot",             "Avg Shot Difficulty (xShot)",    ".3f",  True),
+METRIC_SECTIONS = [
+    ("OVERALL IMPACT", [
+        ("rapm",   "RAPM — Net Impact",             "+.2f", True),
+        ("xrapm",  "xRAPM — Expected Shot Impact",  "+.2f", True),
+        ("o_rapm", "O-RAPM — Offensive Impact",     "+.2f", True),
+        ("d_rapm", "D-RAPM — Defensive Impact",     "+.2f", True),
+    ]),
+    ("SCORING", [
+        ("ppg",                    "Points Per Game",              ".1f",  True),
+        ("fg_pct_above_expected",  "FG% vs Expected (Shot-Making)", "+.3f", True),
+        ("shot_pts_above_expected","Points Above Expected",         "+.0f", True),
+        ("mean_xshot",             "Avg Shot Difficulty (xShot)",  ".3f",  True),
+    ]),
+    ("PLAYMAKING & REBOUNDING", [
+        ("apg", "Assists Per Game",  ".1f", True),
+        ("rpg", "Rebounds Per Game", ".1f", True),
+        ("mpg", "Minutes Per Game",  ".1f", True),
+    ]),
+    ("DEFENSE (Traditional Proxies)", [
+        ("spg", "Steals Per Game", ".1f", True),
+        ("bpg", "Blocks Per Game", ".1f", True),
+    ]),
 ]
 
-# Group separators for the y-axis (blank row between sections)
-_SECTION_LABELS = {
-    "rapm":                   "── IMPACT ───────────────",
-    "ppg":                    "── TRADITIONAL ──────────",
-    "fg_pct_above_expected":  "── SHOT QUALITY ─────────",
-}
 
-def _pct_color(p: float) -> str:
-    if p >= 90: return "#1A9E4E"
-    if p >= 75: return "#2ECC71"
-    if p >= 60: return "#A4C429"
-    if p >= 40: return "#C8A82A"
-    if p >= 25: return "#E67E22"
-    return "#E74C3C"
-
-
-def percentile_chart(player_row: pd.Series, dist_df: pd.DataFrame) -> go.Figure | None:
-    """
-    Builds a Baseball Savant-style horizontal bar chart.
-    Each row = one metric. Bar width = percentile (0-100). Color = percentile tier.
-    """
-    labels, pcts, val_texts, colors = [], [], [], []
-
-    for col, label, fmt, higher_better in METRIC_GROUPS:
-        if col not in player_row.index or pd.isna(player_row[col]):
-            continue
-        val = float(player_row[col])
-
-        p = 50.0
-        if col in dist_df.columns:
-            clean = dist_df[col].dropna()
-            if len(clean) >= 10:
-                p = percentileofscore(clean, val, kind="rank")
-                if not higher_better:
-                    p = 100.0 - p
-
-        labels.append(label)
-        pcts.append(p)
-        val_texts.append(f"{val:{fmt}}")
-        colors.append(_pct_color(p))
-
-    if not labels:
-        return None
-
-    n = len(labels)
-    fig = go.Figure()
-
-    # Light gray background bar (0→100)
-    fig.add_trace(go.Bar(
-        x=[100] * n, y=labels, orientation="h",
-        marker_color="rgba(80,80,80,0.18)",
-        marker_line_width=0,
-        showlegend=False, hoverinfo="skip",
-    ))
-
-    # Colored foreground bar (0→percentile)
-    fig.add_trace(go.Bar(
-        x=pcts, y=labels, orientation="h",
-        marker_color=colors,
-        marker_line_width=0,
-        text=[
-            f"  {v}   <b>{p:.0f}<sup>th</sup></b>"
-            for v, p in zip(val_texts, pcts)
-        ],
-        textposition="outside",
-        cliponaxis=False,
-        hovertemplate=(
-            "<b>%{y}</b><br>"
-            "Value: %{customdata}<br>"
-            "Percentile: %{x:.0f}th<extra></extra>"
-        ),
-        customdata=val_texts,
-        showlegend=False,
-    ))
-
-    # Reference lines at 25 / 50 / 75
-    for x_ref, label_ref in [(25, "25th"), (50, "Avg"), (75, "75th")]:
-        fig.add_vline(
-            x=x_ref, line_dash="dot",
-            line_color="rgba(200,200,200,0.35)",
-            annotation_text=label_ref,
-            annotation_position="top",
-            annotation_font_size=10,
-            annotation_font_color="rgba(200,200,200,0.6)",
-        )
-
-    # Color legend annotation
-    tier_legend = (
-        "<span style='color:#1A9E4E'>■</span> Elite (≥90th)  "
-        "<span style='color:#2ECC71'>■</span> Great (75–90th)  "
-        "<span style='color:#A4C429'>■</span> Above avg (60–75th)  "
-        "<span style='color:#C8A82A'>■</span> Average (40–60th)  "
-        "<span style='color:#E67E22'>■</span> Below avg (25–40th)  "
-        "<span style='color:#E74C3C'>■</span> Poor (&lt;25th)"
+def _html_metric_card(label: str, value: str, delta: str = "",
+                       help_text: str = "") -> str:
+    """Renders one metric card as HTML — never truncates regardless of label length."""
+    delta_html = (
+        f'<div style="color:#9FA8B3;font-size:0.68rem;margin-top:4px">{delta}</div>'
+        if delta else ""
+    )
+    title_attr = f'title="{help_text}"' if help_text else ""
+    return (
+        f'<div {title_attr} style="background:rgba(255,255,255,0.05);border-radius:8px;'
+        f'padding:10px 14px;flex:1;min-width:130px;text-align:center;cursor:default">'
+        f'<div style="color:#9FA8B3;font-size:0.72rem;font-weight:600;'
+        f'letter-spacing:0.03em;white-space:nowrap;overflow:visible">{label}</div>'
+        f'<div style="font-size:1.4rem;font-weight:700;margin-top:5px">{value}</div>'
+        f'{delta_html}</div>'
     )
 
-    fig.update_layout(
-        barmode="overlay",
-        xaxis=dict(range=[0, 130], showticklabels=False,
-                   showgrid=False, zeroline=False),
-        yaxis=dict(autorange="reversed", automargin=True,
-                   tickfont=dict(size=13)),
-        height=n * 52 + 70,
-        margin=dict(l=20, r=120, t=30, b=10),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        annotations=[dict(
-            text=tier_legend, showarrow=False,
-            xref="paper", yref="paper", x=0, y=-0.04,
-            xanchor="left", font=dict(size=11),
-        )],
+
+def _render_metric_row(cards: list[tuple]) -> None:
+    """Renders a flex row of metric cards with no truncation. cards = (label, value, delta, help)."""
+    html = (
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">'
+        + "".join(_html_metric_card(*c) for c in cards)
+        + "</div>"
     )
-    return fig
+    st.markdown(html, unsafe_allow_html=True)
 
 
-# ── Selection ────────────────────────────────────────────────────────────────
+# ── Selection ─────────────────────────────────────────────────────────────────
 all_names = get_player_names()
 default_name = "Nikola Joki\u0107" if "Nikola Joki\u0107" in all_names else all_names[0]
 
@@ -174,6 +107,23 @@ latest_season = str(latest["season"])
 person_id = int(latest["person_id"])
 team = str(latest["team"])
 
+dist = get_league_distribution(latest_season, season_type, min_poss=500)
+
+
+def _pct_label(col: str, val) -> str:
+    """Returns '87th pct' or '' if data is unavailable."""
+    if pd.isna(val) or dist.empty or col not in dist.columns:
+        return ""
+    clean = dist[col].dropna()
+    if len(clean) < 5:
+        return ""
+    return f"{percentileofscore(clean, float(val), kind='rank'):.0f}th pct"
+
+
+def _fmt(v, spec: str) -> str:
+    return f"{float(v):{spec}}" if pd.notna(v) else "—"
+
+
 # ── Header: headshot + quick metrics ─────────────────────────────────────────
 img_col, info_col = st.columns([1, 6])
 
@@ -193,100 +143,106 @@ with info_col:
         f"&nbsp;<span style='color:#888'>· {latest_season} · {season_type}</span>",
         unsafe_allow_html=True,
     )
-    st.markdown("")
 
-    dist = get_league_distribution(latest_season, season_type, min_poss=500)
+    # Row 1: Impact ratings
+    _render_metric_row([
+        ("RAPM",
+         _fmt(latest["rapm"],  "+.2f"),
+         _pct_label("rapm", latest["rapm"]),
+         "Net actual pts/100 poss vs league average"),
+        ("xRAPM",
+         _fmt(latest["xrapm"], "+.2f"),
+         _pct_label("xrapm", latest["xrapm"]),
+         "Net expected pts/100 poss based on shot quality"),
+        ("O-RAPM",
+         _fmt(latest.get("o_rapm"), "+.2f"),
+         _pct_label("o_rapm", latest.get("o_rapm")),
+         "Offensive pts/100 poss added above average (re-run model to populate)"),
+        ("D-RAPM",
+         _fmt(latest.get("d_rapm"), "+.2f"),
+         _pct_label("d_rapm", latest.get("d_rapm")),
+         "Defensive pts/100 poss saved above average (positive = better)"),
+        ("FG% Above Expected",
+         _fmt(latest["fg_pct_above_expected"], "+.3f"),
+         _pct_label("fg_pct_above_expected", latest["fg_pct_above_expected"]),
+         "Actual FG% minus model-predicted FG% — measures shot-making ability"),
+        ("Pts Above Expected",
+         _fmt(latest["shot_pts_above_expected"], "+.0f"),
+         _pct_label("shot_pts_above_expected", latest["shot_pts_above_expected"]),
+         "Total points scored above xShot expectation"),
+    ])
 
-    def pct(col: str, val) -> str:
-        if pd.isna(val) or dist.empty or col not in dist.columns:
-            return "—"
-        clean = dist[col].dropna()
-        return f"{percentileofscore(clean, float(val), kind='rank'):.0f}th" if len(clean) >= 5 else "—"
-
-    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
-    def _fmt(v, spec): return f"{float(v):{spec}}" if pd.notna(v) else "—"
-
-    m1.metric("RAPM",            _fmt(latest["rapm"],  "+.2f"),
-              delta=pct("rapm",  latest["rapm"]),  delta_color="off",
-              help="Net actual pts/100 poss vs avg — percentile vs ≥500-poss players shown")
-    m2.metric("xRAPM",           _fmt(latest["xrapm"], "+.2f"),
-              delta=pct("xrapm", latest["xrapm"]), delta_color="off",
-              help="Net expected pts/100 poss vs avg")
-    m3.metric("FG% vs Expected", _fmt(latest["fg_pct_above_expected"], "+.3f"),
-              delta=pct("fg_pct_above_expected", latest["fg_pct_above_expected"]),
-              delta_color="off", help="Shot-making above expectation")
-    m4.metric("Avg Shot Quality", _fmt(latest["mean_xshot"], ".3f"),
-              help="Mean xShot of all attempts — higher = harder shots taken")
-    m5.metric("PPG",  _fmt(latest["ppg"], ".1f"), help="Points per game")
-    m6.metric("MPG",  _fmt(latest["mpg"], ".1f"), help="Minutes per game")
-    m7.metric("GP",   f"{int(latest['gp'])}" if pd.notna(latest["gp"]) else "—")
-
-st.markdown("---")
-
-# ── Percentile Profile (Baseball Savant-style) ────────────────────────────────
-st.subheader("Percentile Profile")
-st.caption(
-    f"Compared to all players with ≥500 stint possessions — {latest_season} {season_type}. "
-    "Bar width = percentile rank. Colored by tier."
-)
-
-if not dist.empty:
-    fig_pct = percentile_chart(latest, dist)
-    if fig_pct is not None:
-        st.plotly_chart(fig_pct, use_container_width=True)
-    else:
-        st.info("Insufficient data for percentile profile this season.")
-else:
-    st.info("League distribution unavailable for this season.")
+    # Row 2: Traditional per-game stats
+    _render_metric_row([
+        ("PPG",  _fmt(latest["ppg"], ".1f"),  _pct_label("ppg",  latest["ppg"]),  "Points per game"),
+        ("APG",  _fmt(latest["apg"], ".1f"),  _pct_label("apg",  latest["apg"]),  "Assists per game"),
+        ("RPG",  _fmt(latest["rpg"], ".1f"),  _pct_label("rpg",  latest["rpg"]),  "Rebounds per game"),
+        ("SPG",  _fmt(latest["spg"], ".1f"),  _pct_label("spg",  latest["spg"]),  "Steals per game"),
+        ("BPG",  _fmt(latest["bpg"], ".1f"),  _pct_label("bpg",  latest["bpg"]),  "Blocks per game"),
+        ("MPG",  _fmt(latest["mpg"], ".1f"),  "", "Minutes per game"),
+        ("GP",   f"{int(latest['gp'])}" if pd.notna(latest["gp"]) else "—", "", "Games played"),
+    ])
 
 st.markdown("---")
 
-# ── Impact trend ──────────────────────────────────────────────────────────────
-st.subheader("Impact Rating — Season Trend")
-st.caption(
-    "RAPM = actual outcomes. xRAPM = expected shot quality. "
-    "Gap between them reflects shot-making variance — a player whose RAPM > xRAPM "
-    "is outscoring their process (elite finishing or clutch play)."
+# ── Page tabs ──────────────────────────────────────────────────────────────────
+tab_profile, tab_trends, tab_shot = st.tabs(
+    ["📊 Percentile Profile", "📈 Season Trends", "🏀 Shot Chart"]
 )
 
-df_rapm = df[df["rapm"].notna() | df["xrapm"].notna()]
-if not df_rapm.empty:
-    best_rapm_idx = df_rapm["rapm"].idxmax() if df_rapm["rapm"].notna().any() else None
-
-    fig_rapm = go.Figure()
-    if df_rapm["rapm"].notna().any():
-        fig_rapm.add_trace(go.Scatter(
-            x=df_rapm["season"], y=df_rapm["rapm"],
-            mode="lines+markers", name="RAPM (Actual)",
-            line=dict(color="#E8462A", width=2.5), marker=dict(size=8),
-            hovertemplate="%{x}: <b>%{y:+.2f}</b> RAPM<extra></extra>",
-        ))
-    if df_rapm["xrapm"].notna().any():
-        fig_rapm.add_trace(go.Scatter(
-            x=df_rapm["season"], y=df_rapm["xrapm"],
-            mode="lines+markers", name="xRAPM (Expected)",
-            line=dict(color="#4C9BE8", width=2.5, dash="dash"), marker=dict(size=8),
-            hovertemplate="%{x}: <b>%{y:+.2f}</b> xRAPM<extra></extra>",
-        ))
-
-    if best_rapm_idx is not None and best_rapm_idx in df_rapm.index:
-        best = df_rapm.loc[best_rapm_idx]
-        fig_rapm.add_annotation(
-            x=best["season"], y=float(best["rapm"]),
-            text=f"Career best<br>{float(best['rapm']):+.2f}",
-            showarrow=True, arrowhead=2, arrowcolor="#E8462A",
-            font=dict(size=10, color="#E8462A"), ax=0, ay=-38,
+# ── Tab 1: Percentile Profile ──────────────────────────────────────────────────
+with tab_profile:
+    # Archetype badge
+    arch = classify(latest)
+    flags = stability_flags(latest)
+    badge_html = (
+        f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">'
+        f'<span style="background:{arch["color"]}22;border:1px solid {arch["color"]}55;'
+        f'border-radius:6px;padding:4px 10px;font-size:0.9rem;font-weight:600;'
+        f'color:{arch["color"]}">{arch["icon"]} {arch["label"]}</span>'
+        f'<span style="color:#9FA8B3;font-size:0.8rem">{arch["description"]}</span>'
+        + "".join(
+            f'<span title="{f["help"]}" style="background:rgba(255,255,255,0.06);'
+            f'border-radius:6px;padding:3px 8px;font-size:0.78rem;cursor:help">'
+            f'{f["text"]}</span>'
+            for f in flags
         )
-
-    fig_rapm.add_hline(y=0, line_dash="dot", line_color="rgba(200,200,200,0.4)",
-                       annotation_text="League avg", annotation_position="right",
-                       annotation_font_color="rgba(180,180,180,0.7)")
-    fig_rapm.update_layout(
-        xaxis_title="Season",
-        yaxis_title="Points per 100 Possessions (vs avg)",
-        height=370, legend=dict(orientation="h", y=1.08), hovermode="x unified",
+        + "</div>"
     )
-    st.plotly_chart(fig_rapm, use_container_width=True)
+    st.markdown(badge_html, unsafe_allow_html=True)
+
+    st.caption(
+        f"Compared to all players with ≥500 stint possessions — {latest_season} {season_type}. "
+        "Bar width = percentile rank."
+    )
+    if not dist.empty:
+        fig_pct = percentile_bar_chart(latest, dist, METRIC_SECTIONS)
+        if fig_pct is not None:
+            st.plotly_chart(fig_pct, use_container_width=True)
+        else:
+            st.info("Insufficient data for percentile profile this season.")
+    else:
+        st.info("League distribution unavailable for this season.")
+
+
+# ── Tab 2: Season Trends ───────────────────────────────────────────────────────
+with tab_trends:
+    st.subheader("Impact Rating — Season Trend")
+    st.caption(
+        "RAPM = actual outcomes. xRAPM = expected shot quality. "
+        "Gap between them reflects shot-making variance — "
+        "RAPM > xRAPM means outscoring process (elite finishing), "
+        "xRAPM > RAPM = positive regression candidate."
+    )
+
+    fig_rapm = impact_trend_chart(df, player_name=player_name)
+    if fig_rapm:
+        st.plotly_chart(fig_rapm, use_container_width=True)
+    else:
+        st.info(
+            f"**{player_name}** does not have ≥1,000 stint possessions in any "
+            f"{season_type} season."
+        )
 
     if not df_pooled.empty:
         with st.expander("📊 Multi-year pooled RAPM+Prior (v2) — more stable long-run view"):
@@ -312,60 +268,81 @@ if not df_rapm.empty:
                 xaxis_title="3-yr Window (end season)",
                 yaxis_title="Pts / 100 Poss",
                 height=310, legend=dict(orientation="h", y=1.08), hovermode="x unified",
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             )
             st.plotly_chart(fig_pool, use_container_width=True)
-else:
-    st.info(
-        f"**{player_name}** does not have ≥1,000 stint possessions in any season "
-        f"of {season_type} data."
+
+    st.markdown("---")
+    st.subheader("Shot Quality — Season Trend")
+    st.caption(
+        "**Bars:** FG% vs Expected (green = above, red = below). "
+        "**Line:** average difficulty of shots attempted. "
+    )
+    fig_sqt = shot_quality_trend(df)
+    if fig_sqt:
+        st.plotly_chart(fig_sqt, use_container_width=True)
+
+
+# ── Tab 3: Shot Chart ──────────────────────────────────────────────────────────
+with tab_shot:
+    st.caption(
+        "Individual shot locations for the selected season. "
+        "**Green circles** = makes (shade = how surprising). "
+        "**Red × marks** = misses. "
+        "Overlaid zones show FG% above/below expected."
     )
 
-# ── Shot quality trend ────────────────────────────────────────────────────────
-st.markdown("---")
-st.subheader("Shot Quality — Season Trend")
-st.caption(
-    "**Bars:** FG% vs Expected (green = above expectation, red = below). "
-    "**Line (right axis):** average difficulty of shots attempted. "
-    "A player can be below avg difficulty but still be a great shot-maker "
-    "(smart shot selection), or above avg difficulty and underperform (poor efficiency)."
-)
-
-df_shot = df[df["mean_xshot"].notna()]
-if not df_shot.empty:
-    fig_shot = go.Figure()
-    fig_shot.add_trace(go.Bar(
-        x=df_shot["season"],
-        y=df_shot["fg_pct_above_expected"],
-        name="FG% vs Expected",
-        marker_color=["#2ECC71" if v >= 0 else "#E74C3C"
-                      for v in df_shot["fg_pct_above_expected"]],
-        hovertemplate="%{x}: <b>%{y:+.3f}</b> FG% vs expected<extra></extra>",
-    ))
-    fig_shot.add_trace(go.Scatter(
-        x=df_shot["season"], y=df_shot["mean_xshot"],
-        name="Avg Shot Difficulty",
-        mode="lines+markers",
-        line=dict(color="#F4D03F", width=2),
-        yaxis="y2",
-        hovertemplate="%{x}: <b>%{y:.3f}</b> avg xShot<extra></extra>",
-    ))
-    fig_shot.add_hline(y=0, line_dash="dot", line_color="rgba(200,200,200,0.4)")
-    fig_shot.update_layout(
-        yaxis=dict(title="FG% vs Expected  (Actual − Predicted)"),
-        yaxis2=dict(title="Avg Shot Difficulty (xShot)",
-                    overlaying="y", side="right", showgrid=False),
-        height=370,
-        legend=dict(orientation="h", y=1.08),
-        hovermode="x unified",
+    sc_seasons = df["season"].sort_values(ascending=False).unique().tolist()
+    sc_col1, sc_col2 = st.columns([2, 1])
+    sc_season = sc_col1.selectbox(
+        "Season", sc_seasons, key="sc_season",
+        index=0,
     )
-    st.plotly_chart(fig_shot, use_container_width=True)
+    sc_type = sc_col2.selectbox(
+        "Season Type", get_season_types(), key="sc_type"
+    )
+
+    with st.spinner("Loading shots…"):
+        df_shots_raw = get_player_shots(person_id, sc_season, sc_type)
+        df_zones_sc = get_player_shot_zones(person_id, sc_season, sc_type)
+        df_lg_zones = get_league_zone_averages(sc_season, sc_type)
+
+    if df_shots_raw.empty:
+        st.info(f"No shot data for {player_name} in {sc_season} {sc_type}.")
+    else:
+        ch1, ch2 = st.columns([3, 2])
+        with ch1:
+            fig_sc = shot_scatter_fig(
+                df_shots_raw,
+                player_name=player_name,
+                season=sc_season,
+                season_type=sc_type,
+                team_color=team_color(team),
+                show_zone_overlay=True,
+                df_zones=df_zones_sc,
+            )
+            st.plotly_chart(fig_sc, use_container_width=True)
+
+        with ch2:
+            st.markdown("**Shot Zone Efficiency**")
+            fig_zone_eff = zone_efficiency_chart(
+                df_zones_sc,
+                league_zones=df_lg_zones,
+                player_name=player_name,
+            )
+            st.plotly_chart(fig_zone_eff, use_container_width=True)
+
+            st.markdown("**Shot Distribution**")
+            fig_zone_freq = zone_frequency_chart(df_zones_sc, player_name=player_name,
+                                                 color=team_color(team))
+            st.plotly_chart(fig_zone_freq, use_container_width=True)
 
 # ── Career stats table ─────────────────────────────────────────────────────────
 st.markdown("---")
 st.subheader("Career Stats by Season")
 st.caption(
-    "Per-game counting stats. RAPM/xRAPM blank = below 1,000 possession threshold. "
-    "Season +/- is the raw cumulative total for the season (not per-game)."
+    "Per-game counting stats. RAPM/xRAPM/O-RAPM/D-RAPM blank = below 1,000 possession threshold. "
+    "Season +/- is the raw cumulative total (not per-game)."
 )
 
 table_df = df.sort_values("season", ascending=False).reset_index(drop=True)
@@ -393,6 +370,12 @@ st.dataframe(
         "xrapm":                  st.column_config.NumberColumn(
                                       "xRAPM", format="%.2f", width="small",
                                       help="Net expected pts/100 poss vs avg"),
+        "o_rapm":                 st.column_config.NumberColumn(
+                                      "O-RAPM", format="%.2f", width="small",
+                                      help="Offensive pts/100 poss above average"),
+        "d_rapm":                 st.column_config.NumberColumn(
+                                      "D-RAPM", format="%.2f", width="small",
+                                      help="Defensive pts/100 poss saved above average"),
         "rapm_vs_xrapm":          st.column_config.NumberColumn(
                                       "RAPM−xRAPM", format="%.2f", width="small"),
         "possessions":            st.column_config.NumberColumn(
@@ -412,7 +395,8 @@ st.dataframe(
     },
     column_order=[
         "season", "team", "gp", "ppg", "rpg", "apg", "spg", "bpg", "mpg",
-        "season_plus_minus", "rapm", "xrapm", "rapm_vs_xrapm", "possessions",
+        "season_plus_minus", "rapm", "xrapm", "o_rapm", "d_rapm",
+        "rapm_vs_xrapm", "possessions",
         "shots_attempted", "actual_fg_pct", "mean_xshot",
         "fg_pct_above_expected", "shot_pts_above_expected",
     ],

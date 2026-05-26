@@ -12,12 +12,156 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
+from scipy.stats import percentileofscore
 from dashboard.utils.db import get_seasons, get_season_types
-from dashboard.utils.queries import get_team_shot_quality, get_team_trend, get_all_teams
+from dashboard.utils.queries import (
+    get_team_shot_quality, get_team_trend, get_all_teams, get_team_league_distribution,
+)
 from dashboard.utils.nba_static import TEAM_COLORS, team_color
 
 st.set_page_config(page_title="Team Analytics · NBA Impact", page_icon="🏟", layout="wide")
 st.title("🏟 Team Shot Quality Analytics")
+
+
+# ── Team percentile chart helpers ─────────────────────────────────────────────
+
+# (col_in_dist_df, display_label, higher_is_better)
+TEAM_METRIC_SECTIONS = [
+    ("OFFENSE", [
+        ("pts_above_expected_off", "Points Above Expected (Offense)",  True),
+        ("mean_xshot_off",         "Avg Shot Quality Generated",        True),
+        ("fg_pct",                 "Offensive FG%",                     True),
+        ("net_pts_above_expected", "Net Points Above Expected",          True),
+    ]),
+    ("DEFENSE", [
+        ("pts_saved_on_defense",  "Points Saved on Defense",      True),
+        ("xshot_suppression",     "Shot Quality Suppression",      True),
+        ("fg_pct_def_inverted",   "Defensive FG% Allowed (lower = better)", True),
+    ]),
+]
+
+
+def _team_pct_color(p: float) -> str:
+    if p >= 90: return "#1A9E4E"
+    if p >= 75: return "#2ECC71"
+    if p >= 60: return "#A4C429"
+    if p >= 40: return "#C8A82A"
+    if p >= 25: return "#E67E22"
+    return "#E74C3C"
+
+
+def team_percentile_chart(
+    team_row: pd.Series,
+    dist_df: pd.DataFrame,
+    highlight_color: str = "#4C9BE8",
+) -> go.Figure | None:
+    """
+    Baseball Savant-style horizontal bar chart for a single team vs all 30 teams.
+    Sections: Offense / Defense.
+    """
+    labels, pcts, val_texts, colors, is_header = [], [], [], [], []
+
+    for section_name, metrics in TEAM_METRIC_SECTIONS:
+        labels.append(f"  ─ {section_name}")
+        pcts.append(0.0)
+        val_texts.append("")
+        colors.append("rgba(0,0,0,0)")
+        is_header.append(True)
+
+        has_any = False
+        for col, label, higher_better in metrics:
+            if col not in team_row.index or col not in dist_df.columns:
+                continue
+            val = team_row[col]
+            if pd.isna(val):
+                continue
+            val = float(val)
+            clean = dist_df[col].dropna()
+            if len(clean) < 2:
+                continue
+            p = percentileofscore(clean, val, kind="rank")
+            if not higher_better:
+                p = 100.0 - p
+
+            # Format value depending on scale
+            if "pct" in col or "fg_pct" in col:
+                v_str = f"{val:.3f}"
+            elif abs(val) >= 10:
+                v_str = f"{val:+.0f}"
+            else:
+                v_str = f"{val:+.3f}"
+
+            labels.append(label)
+            pcts.append(p)
+            val_texts.append(v_str)
+            colors.append(_team_pct_color(p))
+            is_header.append(False)
+            has_any = True
+
+        if not has_any:
+            labels.pop(); pcts.pop(); val_texts.pop()
+            colors.pop(); is_header.pop()
+
+    if not any(not h for h in is_header):
+        return None
+
+    n = len(labels)
+    bg_colors = ["rgba(0,0,0,0)" if h else "rgba(80,80,80,0.15)" for h in is_header]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=[100] * n, y=labels, orientation="h",
+        marker_color=bg_colors, marker_line_width=0,
+        showlegend=False, hoverinfo="skip",
+    ))
+    fig.add_trace(go.Bar(
+        x=pcts, y=labels, orientation="h",
+        marker_color=colors, marker_line_width=0,
+        text=[
+            "" if h else f"  {v}   <b>{p:.0f}<sup>th</sup></b>"
+            for v, p, h in zip(val_texts, pcts, is_header)
+        ],
+        textposition="outside",
+        cliponaxis=False,
+        hovertemplate="<b>%{y}</b><br>Value: %{customdata}<br>Percentile: %{x:.0f}th<extra></extra>",
+        customdata=val_texts,
+        showlegend=False,
+    ))
+
+    for x_ref, lbl in [(25, "25th"), (50, "Avg"), (75, "75th")]:
+        fig.add_vline(
+            x=x_ref, line_dash="dot",
+            line_color="rgba(200,200,200,0.35)",
+            annotation_text=lbl, annotation_position="top",
+            annotation_font_size=10,
+            annotation_font_color="rgba(200,200,200,0.6)",
+        )
+
+    tier_legend = (
+        "<span style='color:#1A9E4E'>■</span> Elite (≥90th)  "
+        "<span style='color:#2ECC71'>■</span> Great (75–90th)  "
+        "<span style='color:#A4C429'>■</span> Above avg (60–75th)  "
+        "<span style='color:#C8A82A'>■</span> Average (40–60th)  "
+        "<span style='color:#E67E22'>■</span> Below avg (25–40th)  "
+        "<span style='color:#E74C3C'>■</span> Poor (&lt;25th)"
+    )
+
+    row_heights = [28 if h else 48 for h in is_header]
+    fig.update_layout(
+        barmode="overlay",
+        xaxis=dict(range=[0, 145], showticklabels=False, showgrid=False, zeroline=False),
+        yaxis=dict(autorange="reversed", automargin=True, tickfont=dict(size=12)),
+        height=sum(row_heights) + 80,
+        margin=dict(l=20, r=130, t=20, b=50),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        annotations=[dict(
+            text=tier_legend, showarrow=False,
+            xref="paper", yref="paper", x=0, y=-0.08,
+            xanchor="left", font=dict(size=11),
+        )],
+    )
+    return fig
 st.caption(
     "Shot quality is measured by **xShot** — the model-predicted probability any given "
     "field goal attempt is made. Teams that generate high-quality shots offensively "
@@ -206,10 +350,13 @@ with st.expander("📋 Full data table"):
         ],
     )
 
-# ── Season-over-season trend ──────────────────────────────────────────────────
+# ── Team Profile: percentile chart + season trend ────────────────────────────
 st.markdown("---")
-st.subheader("Season-over-Season Trend")
-st.caption("Track how a franchise's shot quality profile has evolved since 2014-15.")
+st.subheader("Team Profile")
+st.caption(
+    "Select a franchise to see its shot quality profile relative to all 30 teams "
+    "for the current season, then track how it has evolved over time."
+)
 
 all_teams = get_all_teams()
 default_team = "DEN" if "DEN" in all_teams else all_teams[0]
@@ -220,6 +367,24 @@ selected_team = t1.selectbox(
     key="trend_team",
 )
 trend_stype = t2.selectbox("Season Type", get_season_types(), key="trend_stype")
+
+# Percentile chart for selected team in the currently selected season
+dist_teams = get_team_league_distribution(season, trend_stype)
+if not dist_teams.empty and selected_team in dist_teams["team"].values:
+    team_row = dist_teams[dist_teams["team"] == selected_team].iloc[0]
+    fig_tpct = team_percentile_chart(team_row, dist_teams, highlight_color=team_color(selected_team))
+    if fig_tpct is not None:
+        st.markdown(
+            f"**{selected_team}** percentile profile — {season} {trend_stype} "
+            f"(vs all 30 teams)"
+        )
+        st.plotly_chart(fig_tpct, use_container_width=True)
+elif not dist_teams.empty:
+    st.info(f"No shot data for **{selected_team}** in {season} {trend_stype}.")
+
+st.markdown("#### Season-over-Season Trend")
+st.caption("Track how a franchise's shot quality profile has evolved since 2014-15.")
+
 metric_label = t3.selectbox(
     "Metric",
     [

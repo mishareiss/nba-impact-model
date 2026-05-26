@@ -36,6 +36,8 @@ WITH deduped AS (
         -- RAPM: identical across rows, take any
         MAX(xrapm)        AS xrapm,
         MAX(rapm)         AS rapm,
+        MAX(o_rapm)       AS o_rapm,
+        MAX(d_rapm)       AS d_rapm,
         MAX(possessions)  AS possessions,
         -- Box score totals: identical across rows (from DISTINCT ON), take MAX
         MAX(gp)           AS gp,
@@ -56,7 +58,7 @@ _SELECT_COLS = """
     person_id, full_name, team, season, season_type,
     shots_attempted, actual_fg_pct, mean_xshot,
     fg_pct_above_expected, shot_pts_above_expected,
-    xrapm, rapm,
+    xrapm, rapm, o_rapm, d_rapm,
     ROUND((rapm - xrapm)::numeric, 3)                                          AS rapm_vs_xrapm,
     possessions,
     gp,
@@ -192,3 +194,23 @@ def get_team_trend(team: str, season_type: str) -> pd.DataFrame:
 def get_all_teams() -> list[str]:
     df = query("SELECT DISTINCT team FROM team_shot_quality ORDER BY team")
     return df["team"].tolist()
+
+
+def get_team_league_distribution(season: str, season_type: str) -> pd.DataFrame:
+    """All teams' shot-quality stats for the selected season — used for percentile chart."""
+    return query(
+        """
+        SELECT team, team_name,
+               pts_above_expected_off,
+               mean_xshot_off,
+               fg_pct,
+               ROUND((pts_above_expected_off - pts_above_expected_def)::numeric, 1)
+                   AS net_pts_above_expected,
+               -pts_above_expected_def        AS pts_saved_on_defense,
+               -mean_xshot_def                AS xshot_suppression,
+               -fg_pct_allowed                AS fg_pct_def_inverted
+        FROM team_shot_quality
+        WHERE season = :season AND season_type = :season_type
+        """,
+        {"season": season, "season_type": season_type},
+    )
