@@ -22,7 +22,6 @@ from dashboard.utils.viz import (
     impact_trend_chart, shot_quality_trend, TIER_LEGEND
 )
 from dashboard.utils.shot_queries import get_player_shots, get_player_shot_zones, get_league_zone_averages
-from dashboard.utils.archetypes import classify, stability_flags
 from dashboard.utils.court import shot_scatter_fig
 
 st.set_page_config(page_title="Player Profile · NBA Impact", page_icon="👤", layout="wide")
@@ -33,10 +32,9 @@ st.title("👤 Player Profile")
 
 METRIC_SECTIONS = [
     ("OVERALL IMPACT", [
-        ("rapm",   "RAPM — Net Impact",             "+.2f", True),
-        ("xrapm",  "xRAPM — Expected Shot Impact",  "+.2f", True),
-        ("o_rapm", "O-RAPM — Offensive Impact",     "+.2f", True),
-        ("d_rapm", "D-RAPM — Defensive Impact",     "+.2f", True),
+        ("rapm",              "RAPM — Net Impact",             "+.2f", True),
+        ("xrapm",             "xRAPM — Expected Shot Impact",  "+.2f", True),
+        ("rapm_vs_xrapm",     "RAPM − xRAPM (Process Gap)",    "+.2f", True),
     ]),
     ("SCORING", [
         ("ppg",                    "Points Per Game",              ".1f",  True),
@@ -154,14 +152,10 @@ with info_col:
          _fmt(latest["xrapm"], "+.2f"),
          _pct_label("xrapm", latest["xrapm"]),
          "Net expected pts/100 poss based on shot quality"),
-        ("O-RAPM",
-         _fmt(latest.get("o_rapm"), "+.2f"),
-         _pct_label("o_rapm", latest.get("o_rapm")),
-         "Offensive pts/100 poss added above average (re-run model to populate)"),
-        ("D-RAPM",
-         _fmt(latest.get("d_rapm"), "+.2f"),
-         _pct_label("d_rapm", latest.get("d_rapm")),
-         "Defensive pts/100 poss saved above average (positive = better)"),
+        ("RAPM − xRAPM",
+         _fmt(latest.get("rapm_vs_xrapm"), "+.2f"),
+         _pct_label("rapm_vs_xrapm", latest.get("rapm_vs_xrapm")),
+         "Process gap: positive = outscoring shot quality (elite finishing / luck), negative = regression candidate"),
         ("FG% Above Expected",
          _fmt(latest["fg_pct_above_expected"], "+.3f"),
          _pct_label("fg_pct_above_expected", latest["fg_pct_above_expected"]),
@@ -192,25 +186,6 @@ tab_profile, tab_trends, tab_shot = st.tabs(
 
 # ── Tab 1: Percentile Profile ──────────────────────────────────────────────────
 with tab_profile:
-    # Archetype badge
-    arch = classify(latest)
-    flags = stability_flags(latest)
-    badge_html = (
-        f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">'
-        f'<span style="background:{arch["color"]}22;border:1px solid {arch["color"]}55;'
-        f'border-radius:6px;padding:4px 10px;font-size:0.9rem;font-weight:600;'
-        f'color:{arch["color"]}">{arch["icon"]} {arch["label"]}</span>'
-        f'<span style="color:#9FA8B3;font-size:0.8rem">{arch["description"]}</span>'
-        + "".join(
-            f'<span title="{f["help"]}" style="background:rgba(255,255,255,0.06);'
-            f'border-radius:6px;padding:3px 8px;font-size:0.78rem;cursor:help">'
-            f'{f["text"]}</span>'
-            for f in flags
-        )
-        + "</div>"
-    )
-    st.markdown(badge_html, unsafe_allow_html=True)
-
     st.caption(
         f"Compared to all players with ≥500 stint possessions — {latest_season} {season_type}. "
         "Bar width = percentile rank."
@@ -395,8 +370,7 @@ st.dataframe(
     },
     column_order=[
         "season", "team", "gp", "ppg", "rpg", "apg", "spg", "bpg", "mpg",
-        "season_plus_minus", "rapm", "xrapm", "o_rapm", "d_rapm",
-        "rapm_vs_xrapm", "possessions",
+        "season_plus_minus", "rapm", "xrapm", "rapm_vs_xrapm", "possessions",
         "shots_attempted", "actual_fg_pct", "mean_xshot",
         "fg_pct_above_expected", "shot_pts_above_expected",
     ],

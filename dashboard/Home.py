@@ -1,6 +1,6 @@
 """
-NBA Basketball Intelligence Platform — Home
-Executive overview, league trends, and navigation hub.
+NBA xShot + RAPM Impact Model — Home
+Project overview, league trends, and navigation hub.
 """
 
 import sys
@@ -19,7 +19,7 @@ from dashboard.utils.db import query
 from dashboard.utils.nba_static import team_logo_url, player_headshot_url, team_color as _team_color
 
 st.set_page_config(
-    page_title="NBA Intelligence Platform",
+    page_title="NBA xShot + RAPM Model",
     page_icon="🏀",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -74,15 +74,6 @@ st.markdown("""
             text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
 .ec-value { font-size: 1.45rem; font-weight: 700; margin-top: 4px; }
 .ec-sub   { font-size: 0.72rem; color: rgba(160,165,175,0.70); margin-top: 3px; }
-/* intel feed placeholder */
-.intel-placeholder {
-    border: 1.5px dashed rgba(255,255,255,0.15);
-    border-radius: 10px;
-    padding: 28px 24px;
-    text-align: center;
-    color: rgba(160,165,175,0.60);
-    font-size: 0.85rem;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -285,10 +276,10 @@ def _fmt(v, spec: str) -> str:
 # ---------------------------------------------------------------------------
 
 st.markdown(
-    "<h1 style='margin-bottom:2px'>🏀 NBA Basketball Intelligence</h1>"
+    "<h1 style='margin-bottom:2px'>🏀 NBA xShot + RAPM Impact Model</h1>"
     "<p style='color:rgba(160,165,175,0.75);font-size:0.92rem;margin-top:0'>"
     "2.68 million field goal attempts · 12 seasons (2014-15 → 2025-26) · "
-    "Shot quality modelling, impact ratings, lineup analytics</p>",
+    "XGBoost shot quality model → Ridge RAPM/xRAPM player impact ratings</p>",
     unsafe_allow_html=True,
 )
 
@@ -589,40 +580,18 @@ else:
 
 
 # ---------------------------------------------------------------------------
-# Section 3 — League Intelligence Feed  (placeholder)
+# Section 3 — Quick Access Tiles
 # ---------------------------------------------------------------------------
 
-st.markdown('<div class="section-label">League Intelligence Feed</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="intel-placeholder">'
-    '<div style="font-size:1.5rem;margin-bottom:10px">🧠</div>'
-    '<div style="font-weight:600;color:rgba(200,205,215,0.75);margin-bottom:6px">'
-    'Auto-Generated Insights — Coming Soon</div>'
-    'This section will surface automatically generated analytical findings:<br>'
-    '"Oklahoma City generated the highest shot quality differential in the league."<br>'
-    '"Shai Gilgeous-Alexander\'s xRAPM improved most over the last 3 seasons."<br>'
-    '"Mid-range attempts are at a new 12-season low."'
-    '</div>',
-    unsafe_allow_html=True,
-)
-
-# ---------------------------------------------------------------------------
-# Section 4 — Quick Access Tiles
-# ---------------------------------------------------------------------------
-
-st.markdown('<div class="section-label">Navigation</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-label">Explore the Model</div>', unsafe_allow_html=True)
 
 _TILES = [
-    ("pages/1_Leaderboards.py",    "📊", "Leaderboards",
-     "RAPM, xRAPM, O-RAPM, D-RAPM rankings. Single-season and multi-year pooled."),
-    ("pages/2_Player_Profile.py",  "👤", "Player Profile",
-     "Percentile profile, shot chart, career trends, archetype & stability flags."),
-    ("pages/3_Team_Analytics.py",  "🏟️", "Team Analytics",
-     "Shot quality offence vs defence. Team percentile profile & season trends."),
-    ("pages/5_Compare.py",         "⚖️", "Compare Players",
-     "Side-by-side percentile, shot profile, shot chart & stability analysis."),
-    ("pages/4_Glossary.py",        "📖", "Glossary",
-     "Plain-English definitions of every metric used in this platform."),
+    ("pages/1_Leaderboards.py",   "📊", "Leaderboards",
+     "RAPM & xRAPM player rankings. Single-season and multi-year pooled views."),
+    ("pages/2_Player_Profile.py", "👤", "Player Profile",
+     "Per-player shot chart, zone efficiency, RAPM/xRAPM career trend & percentile profile."),
+    ("pages/3_Glossary.py",       "📖", "Glossary",
+     "Plain-English definitions of xShot, RAPM, xRAPM, RAPM−xRAPM, and every derived metric."),
 ]
 
 tile_cols = st.columns(len(_TILES))
@@ -640,28 +609,33 @@ for col, (page, icon, title, desc) in zip(tile_cols, _TILES):
 # ---------------------------------------------------------------------------
 
 st.markdown("---")
-with st.expander("ℹ️  How this system works"):
+with st.expander("ℹ️  How this model works"):
     st.markdown("""
-**Step 1 — Shot Quality (xShot)**
-Every field goal attempt is scored by an XGBoost model trained on location, shot type,
-and game context. Output is a 0–1 probability of the shot being made. A restricted-area
-dunk scores ~0.95; a contested pull-up mid-range scores ~0.35.
+**Step 1 — Shot Quality Model (xShot)**
+Every field goal attempt is scored by an XGBoost classifier trained on shot location,
+shot type, and game context (period, clock, playoffs). Output is a 0–1 probability the
+shot is made. A restricted-area dunk scores ~0.95; a contested pull-up mid-range ~0.35.
+Trained on pre-2022-23 data; tested on 2023-25 holdout seasons (~7.7% log-loss improvement
+over a naive FG% baseline).
 
 **Step 2 — Shot-Making Over Expected (FG% vs Expected)**
 Comparing xShot predictions to outcomes reveals which players consistently over- or
 under-perform the difficulty of their attempts. This isolates shot-making skill from
-shot selection and volume.
+shot selection and volume — a player can "look efficient" by hunting only high-probability
+looks, or truly shoot above expectation.
 
-**Step 3 — Player Impact (RAPM / xRAPM / O-RAPM / D-RAPM)**
-Every game is parsed into lineup stints — periods where both 5-player lineups are stable.
-Ridge regression over all ~421k stints estimates each player's marginal contribution to
+**Step 3 — Player Impact (RAPM / xRAPM)**
+Every game is parsed into 5v5 lineup stints — periods where both rosters are stable.
+Ridge regression over ~421k stints estimates each player's marginal contribution to
 team scoring margin per 100 possessions, controlling for teammates and opponents simultaneously.
-xRAPM uses xShot-derived points instead of actual points — a process-based impact metric.
+**xRAPM** replaces actual points with xShot-derived expected points, producing a process-based
+impact metric that separates a player's shot-quality contribution from lucky makes and misses.
+The gap **RAPM − xRAPM** flags unsustainable over/under-performance.
 
 **Step 4 — Multi-Year Pooling + Box-Score Prior (v2)**
-Rolling 3-season windows reduce single-season noise. A box-score prior anchors
-estimates toward historical baselines, correctly elevating stars whose impact is
-measurable from traditional stats.
+Rolling 3-season windows reduce single-season sample-size noise. A box-score prior
+(per-minute plus/minus) anchors estimates toward observed baselines, shrinking small-sample
+outliers while preserving signal for players with large, consistent datasets.
 
-**Data:** NBA Stats API · 2014-15 through 2025-26 · Regular Season + Playoffs
+**Data:** NBA Stats API · 2014-15 through 2025-26 · Regular Season + Playoffs · ~2.68M FGA · ~421k stints
     """)
