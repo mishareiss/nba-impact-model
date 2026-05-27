@@ -81,16 +81,27 @@ def chart_layout(
     height: int = 380,
     hovermode: str = "x unified",
     legend_y: float = 1.08,
+    margin: dict | None = None,
     **overrides,
 ) -> dict:
     """
     Return a Plotly layout dict pre-configured for the dark dashboard theme.
 
-    Pass any standard Plotly layout keys as overrides, e.g.:
-        chart_layout(height=500, xaxis_title="Season")
+    All keys are safe to pass here — they will NOT be passed again as kwargs
+    to update_layout, avoiding 'multiple values for keyword argument' errors.
+
+    Parameters
+    ----------
+    height    : chart height in pixels
+    hovermode : Plotly hovermode string
+    legend_y  : vertical position of the legend (0–1.2)
+    margin    : dict(l, r, t, b) override; defaults to _BASE margin
+    **overrides : any additional layout keys (xaxis_title, barmode, etc.)
     """
     layout = {**_BASE, "height": height, "hovermode": hovermode}
     layout["legend"] = {**_BASE["legend"], "y": legend_y}
+    if margin is not None:
+        layout["margin"] = margin
     layout.update(overrides)
     return layout
 

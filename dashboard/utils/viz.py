@@ -643,12 +643,15 @@ def feature_importance_fig(data: dict, top_n: int = 15) -> go.Figure:
     )
 
     fig.update_layout(
-        **chart_layout(height=max(300, top_n * 28 + 80)),
+        **chart_layout(
+            height=max(300, top_n * 28 + 80),
+            hovermode="closest",
+            margin=dict(l=20, r=100, t=40, b=60),
+        ),
         xaxis=dict(title="Normalised gain importance", showgrid=True,
                    gridcolor=GRID, zeroline=False, tickformat=".0%",
                    range=[0, max(imps) * 1.3]),
         yaxis=dict(automargin=True, tickfont=dict(size=12)),
-        margin=dict(l=20, r=100, t=40, b=60),
     )
     return fig
 
