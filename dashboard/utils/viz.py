@@ -569,14 +569,13 @@ def calibration_curve_fig(data: dict) -> go.Figure:
     ))
 
     fig.update_layout(
-        **chart_layout(height=380),
+        **chart_layout(height=380, hovermode="x unified"),
         xaxis=dict(title="Predicted probability (xShot)", range=[0, 1],
                    showgrid=True, gridcolor=GRID, zeroline=False,
                    tickformat=".0%"),
         yaxis=dict(title="Actual make rate", range=[0, 1],
                    showgrid=True, gridcolor=GRID, zeroline=False,
                    tickformat=".0%"),
-        hovermode="x unified",
     )
     return fig
 
@@ -649,7 +648,6 @@ def feature_importance_fig(data: dict, top_n: int = 15) -> go.Figure:
                    gridcolor=GRID, zeroline=False, tickformat=".0%",
                    range=[0, max(imps) * 1.3]),
         yaxis=dict(automargin=True, tickfont=dict(size=12)),
-        hovermode="closest",
         margin=dict(l=20, r=100, t=40, b=60),
     )
     return fig
@@ -707,7 +705,6 @@ def shot_difficulty_dist_fig(df: pd.DataFrame) -> go.Figure:
                    tickformat=".2f"),
         yaxis=dict(title="Number of shots", showgrid=True, gridcolor=GRID,
                    zeroline=False),
-        hovermode="x unified",
         bargap=0.05,
     )
     return fig
@@ -816,12 +813,11 @@ def stability_scatter_fig(
 
     n_pairs = len(clean)
     fig.update_layout(
-        **chart_layout(height=420),
+        **chart_layout(height=420, hovermode="closest"),
         xaxis=dict(title=f"Year N {label} (pts/100 poss)", showgrid=True,
                    gridcolor=GRID, zeroline=False),
         yaxis=dict(title=f"Year N+1 {label} (pts/100 poss)", showgrid=True,
                    gridcolor=GRID, zeroline=False),
-        hovermode="closest",
         annotations=[dict(
             text=f"R² = {r2:.3f}  ·  n = {n_pairs:,} player-season pairs",
             xref="paper", yref="paper", x=0.01, y=0.98,
@@ -918,12 +914,11 @@ def process_vs_results_fig(
                   annotation_font_color=MUTED, annotation_position="top")
 
     fig.update_layout(
-        **chart_layout(height=420),
+        **chart_layout(height=420, hovermode="closest"),
         xaxis=dict(title="Avg Shot Difficulty (mean xShot)", showgrid=True,
                    gridcolor=GRID, zeroline=False),
         yaxis=dict(title="FG% Above Expected (Shot-Making)", showgrid=True,
                    gridcolor=GRID, zeroline=False, tickformat="+.3f"),
-        hovermode="closest",
     )
     return fig
 
@@ -1000,11 +995,10 @@ def rapm_distribution_fig(
             )
 
     fig.update_layout(
-        **chart_layout(height=360),
+        **chart_layout(height=360, hovermode="closest"),
         barmode="overlay",
         xaxis=dict(title="RAPM / xRAPM (pts/100 poss vs avg)",
                    showgrid=True, gridcolor=GRID, zeroline=False),
         yaxis=dict(title="Player count", showgrid=True, gridcolor=GRID, zeroline=False),
-        hovermode="closest",
     )
     return fig
