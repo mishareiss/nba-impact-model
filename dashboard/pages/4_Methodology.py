@@ -398,10 +398,12 @@ with tab_limits:
         "and where additional evidence is needed."
     )
 
+    # (title, scope_label, severity_text, severity_color, body)
     limitations = [
         ("No defender proximity",
          "xShot",
-         f"<span style='color:{ACCENT_GOLD}'>Severity: High</span>",
+         "Severity: High",
+         ACCENT_GOLD,
          "The model cannot distinguish a wide-open corner 3 from a closely-guarded one. "
          "Defender proximity is the single most important missing variable. "
          "Second Spectrum tracking data would address this but is not publicly available. "
@@ -409,7 +411,8 @@ with tab_limits:
          "heavy contest attention and under-values players who frequently find open looks."),
         ("No shooter identity",
          "xShot",
-         f"<span style='color:{ACCENT_GOLD}'>Severity: Medium (by design)</span>",
+         "Severity: Medium (by design)",
+         ACCENT_GOLD,
          "Excluding shooter identity is a design choice, not a limitation per se. "
          "It ensures xShot measures shot difficulty, not shooter reputation. "
          "However, it means a Stephen Curry pull-up and a bench player pull-up get the same "
@@ -417,7 +420,8 @@ with tab_limits:
          "This is intentional: Curry's skill shows up in FG% above expected, not xShot."),
         ("RAPM collinearity",
          "RAPM / xRAPM",
-         f"<span style='color:{ACCENT_GOLD}'>Severity: High for team-concentrated players</span>",
+         "Severity: High for team-concentrated players",
+         ACCENT_GOLD,
          "Players who almost never play without their best teammates have nearly identical "
          "rows in the design matrix. Ridge regression handles this by shrinking toward zero "
          "rather than producing extreme estimates, but it cannot assign credit correctly "
@@ -425,14 +429,16 @@ with tab_limits:
          "The pooled v2 model helps marginally by introducing more lineup diversity across seasons."),
         ("Small-sample instability",
          "RAPM / xRAPM",
-         f"<span style='color:{ACCENT_GREEN}'>Severity: Mitigated by thresholds + pooling</span>",
+         "Severity: Mitigated by thresholds + pooling",
+         ACCENT_GREEN,
          "Below 1,000 stint possessions (~18–20 games at starter minutes), ridge bias "
          "dominates and estimates are not published. The 3-year pooled model raises the "
          "effective floor to 2,000 possessions. "
          "Injury-shortened seasons and part-time players remain poorly estimated even with pooling."),
         ("Era effects",
          "Both models",
-         f"<span style='color:{ACCENT_GOLD}'>Severity: Medium for cross-era comparisons</span>",
+         "Severity: Medium for cross-era comparisons",
+         ACCENT_GOLD,
          "The NBA in 2014-15 and 2025-26 are substantially different games. "
          "3-point rates, pace, and lineup construction have all shifted. "
          "The xShot model was trained across all eras, which means a 2014-15 mid-range shot "
@@ -440,7 +446,8 @@ with tab_limits:
          "within-season analysis but imperfect for comparing eras."),
         ("No free throws or turnovers",
          "xRAPM",
-         f"<span style='color:{ACCENT_GOLD}'>Severity: Medium</span>",
+         "Severity: Medium",
+         ACCENT_GOLD,
          "xRAPM's target variable (xShot-derived expected points) captures only field goals. "
          "Free throw generation, fouling propensity, and turnovers all affect scoring margin "
          "but do not appear in xRAPM. RAPM (actual outcomes) subsumes these effects naturally. "
@@ -448,9 +455,14 @@ with tab_limits:
          "xRAPM relative to RAPM."),
     ]
 
-    for title, scope, severity, body in limitations:
-        with st.expander(f"**{title}** — {scope}  ·  {severity}", expanded=False):
-            st.markdown(body, unsafe_allow_html=True)
+    for title, scope, severity_text, severity_color, body in limitations:
+        with st.expander(f"{title}  —  {scope}", expanded=False):
+            st.markdown(
+                f"<span style='font-size:0.78rem;font-weight:600;"
+                f"color:{severity_color}'>{severity_text}</span>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(body)
 
     st.markdown("---")
     st.markdown("#### Glossary of metric terms")

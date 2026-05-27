@@ -336,10 +336,11 @@ with sec_limits:
         "analysis — it tells you where to trust the outputs and where to be cautious."
     )
 
+    # (title, scope_label, scope_color, body)
     limitations = [
         (
             "No defender proximity data",
-            f"<span style='color:{ACCENT_GOLD}'>xShot</span>",
+            "xShot", ACCENT_GOLD,
             "The model has no information about how closely a shot is contested. "
             "A 25-foot pull-up over a flat-footed defender and a 25-foot pull-up "
             "into a perfectly positioned rim protector receive the same xShot. "
@@ -348,7 +349,7 @@ with sec_limits:
         ),
         (
             "No shooter identity in xShot",
-            f"<span style='color:{ACCENT_GOLD}'>xShot</span>",
+            "xShot", ACCENT_GOLD,
             "By design, xShot does not know who is shooting. This prevents the "
             "model from learning that Stephen Curry makes more pull-up threes than "
             "average — that signal is reserved for FG% above expected (SMOE) rather "
@@ -356,7 +357,7 @@ with sec_limits:
         ),
         (
             "RAPM collinearity",
-            f"<span style='color:{ACCENT_BLUE}'>RAPM / xRAPM</span>",
+            "RAPM / xRAPM", ACCENT_BLUE,
             "Players who share nearly all their minutes with the same teammates "
             "have collinear rows in the design matrix. Ridge regularisation shrinks "
             "their coefficients toward zero rather than producing unreliable extreme "
@@ -365,7 +366,7 @@ with sec_limits:
         ),
         (
             "Small-sample instability",
-            f"<span style='color:{ACCENT_BLUE}'>RAPM / xRAPM</span>",
+            "RAPM / xRAPM", ACCENT_BLUE,
             "Below ~1,000 stint possessions (roughly 20–25 games of starter-level "
             "minutes), the ridge penalty dominates and estimates shrink heavily "
             "toward zero. Injury-shortened seasons and bench players are particularly "
@@ -373,7 +374,7 @@ with sec_limits:
         ),
         (
             "Era effects",
-            f"<span style='color:{ACCENT}'>Both models</span>",
+            "Both models", ACCENT,
             "The NBA has changed dramatically from 2014-15 to 2025-26: 3-point rates, "
             "pace, and defensive schemes have all shifted. Single-season RAPM within "
             "an era is comparable; cross-era comparisons should treat the pooled "
@@ -381,7 +382,7 @@ with sec_limits:
         ),
         (
             "No free throws or turnovers",
-            f"<span style='color:{ACCENT}'>Both models</span>",
+            "Both models", ACCENT,
             "xShot is a field goal model only. Free throw generation, defensive "
             "fouling tendencies, and turnovers all affect team scoring but are not "
             "captured in xRAPM's target variable. RAPM (actual outcomes) subsumes "
@@ -389,6 +390,11 @@ with sec_limits:
         ),
     ]
 
-    for title, scope, body in limitations:
-        with st.expander(f"**{title}**  —  {scope}", expanded=False):
-            st.markdown(body, unsafe_allow_html=True)
+    for title, scope, scope_color, body in limitations:
+        with st.expander(f"{title}  —  {scope}", expanded=False):
+            st.markdown(
+                f"<span style='font-size:0.78rem;font-weight:700;"
+                f"color:{scope_color}'>{scope}</span>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(body)
