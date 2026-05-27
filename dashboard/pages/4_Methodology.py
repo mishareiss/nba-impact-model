@@ -129,7 +129,7 @@ with tab_xshot:
     fig_cal = calibration_curve_fig(cal_data)
     col_cal, _ = st.columns([2, 1])
     with col_cal:
-        st.plotly_chart(fig_cal, use_container_width=True, config=MODEBAR)
+        st.plotly_chart(fig_cal, use_container_width=True, config=MODEBAR, key="meth_xshot_cal")
 
     st.markdown("#### Feature Importance")
     st.caption(
@@ -140,7 +140,7 @@ with tab_xshot:
     fig_fi = feature_importance_fig(fi_data, top_n=15)
     col_fi, _ = st.columns([2, 1])
     with col_fi:
-        st.plotly_chart(fig_fi, use_container_width=True, config=MODEBAR)
+        st.plotly_chart(fig_fi, use_container_width=True, config=MODEBAR, key="meth_xshot_fi")
 
 
 # ===========================================================================
@@ -310,12 +310,12 @@ with tab_xrapm_why:
             fig_r = stability_scatter_fig(df_pairs, metric="rapm",  label="RAPM",  color=ACCENT)
             if fig_r:
                 st.markdown("**RAPM — Year-over-Year**")
-                st.plotly_chart(fig_r, use_container_width=True, config=MODEBAR)
+                st.plotly_chart(fig_r, use_container_width=True, config=MODEBAR, key="meth_stab_rapm")
         with sc2:
             fig_x = stability_scatter_fig(df_pairs, metric="xrapm", label="xRAPM", color=ACCENT_BLUE)
             if fig_x:
                 st.markdown("**xRAPM — Year-over-Year**")
-                st.plotly_chart(fig_x, use_container_width=True, config=MODEBAR)
+                st.plotly_chart(fig_x, use_container_width=True, config=MODEBAR, key="meth_stab_xrapm")
 
 
 # ===========================================================================
@@ -362,7 +362,7 @@ with tab_validation:
     col_cal, col_note = st.columns([2, 1])
     with col_cal:
         fig_cal = calibration_curve_fig(cal_data)
-        st.plotly_chart(fig_cal, use_container_width=True, config=MODEBAR)
+        st.plotly_chart(fig_cal, use_container_width=True, config=MODEBAR, key="meth_val_cal")
     with col_note:
         st.markdown(
             "**Reading the chart:**\n\n"
