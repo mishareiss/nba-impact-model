@@ -199,3 +199,115 @@ def nav_tile(icon: str, title: str, desc: str) -> str:
         f'<div style="font-size:0.74rem;color:{MUTED};line-height:1.4">{desc}</div>'
         f'</div>'
     )
+
+
+# ---------------------------------------------------------------------------
+# Article-format helpers
+# ---------------------------------------------------------------------------
+
+# Shared CSS injected once at the top of any article-format page
+ARTICLE_CSS = f"""
+<style>
+.art-section {{
+    border-left: 3px solid {ACCENT};
+    padding: 2px 0 2px 14px;
+    margin: 2.8rem 0 0.6rem 0;
+}}
+.art-section .art-num {{
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: {MUTED};
+    margin-bottom: 2px;
+}}
+.art-section .art-title {{
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: rgba(220,225,232,0.96);
+    line-height: 1.2;
+}}
+.art-divider {{
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.07);
+    margin: 2rem 0;
+}}
+.finding-box {{
+    background: rgba(232,70,42,0.08);
+    border-left: 3px solid {ACCENT};
+    border-radius: 0 8px 8px 0;
+    padding: 12px 16px;
+    margin: 14px 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: rgba(220,225,232,0.92);
+    line-height: 1.5;
+}}
+.finding-box.blue {{
+    background: rgba(76,155,232,0.08);
+    border-left-color: {ACCENT_BLUE};
+}}
+.finding-box.green {{
+    background: rgba(46,204,113,0.08);
+    border-left-color: {ACCENT_GREEN};
+}}
+.chart-caption {{
+    font-size: 0.75rem;
+    color: {MUTED};
+    font-style: italic;
+    margin-top: 4px;
+    line-height: 1.45;
+}}
+.interactive-well {{
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 12px;
+    padding: 20px 22px 16px 22px;
+    margin: 0.5rem 0 1.5rem 0;
+}}
+.interactive-well .well-label {{
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: {ACCENT_GOLD};
+    margin-bottom: 10px;
+}}
+</style>
+"""
+
+
+def art_section(number: str, title: str) -> str:
+    """HTML for an article-section heading (number + title with left accent bar)."""
+    return (
+        f'<div class="art-section">'
+        f'<div class="art-num">{number}</div>'
+        f'<div class="art-title">{title}</div>'
+        f'</div>'
+    )
+
+
+def finding(text: str, variant: str = "") -> str:
+    """
+    HTML for a key-finding callout box.
+    variant: "" (red), "blue", or "green"
+    """
+    cls = f"finding-box {variant}".strip()
+    return f'<div class="{cls}">{text}</div>'
+
+
+def chart_caption(text: str) -> str:
+    """HTML for a below-chart interpretive caption."""
+    return f'<div class="chart-caption">↑ {text}</div>'
+
+
+def interactive_well_open() -> str:
+    """Opening tag for an interactive section well."""
+    return (
+        '<div class="interactive-well">'
+        '<div class="well-label">🎛 Interactive — try it yourself</div>'
+    )
+
+
+def interactive_well_close() -> str:
+    return '</div>'
