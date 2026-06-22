@@ -2,135 +2,196 @@
 
 A production-grade NBA analytics system that ingests, models, and surfaces play-by-play data to quantify **shot quality** and **player impact** independently of teammates and opponents.
 
-Built on 2.68 million field goal attempts across 12 seasons (2014-15 through 2025-26), the system produces per-shot expected value estimates (xShot) that power downstream player evaluation and impact modeling.
+Built on **2.68 million field goal attempts across 12 seasons** (2014-15 through 2025-26), the system produces per-shot expected value estimates (xShot) that power a full basketball analytics dashboard.
 
-## What This Project Includes
+## Live Dashboard
 
-This project combines NBA data engineering, machine learning, and player analytics into a single end-to-end system.
+8 pages accessible at `localhost:8501` when running locally:
 
-At a high level, it:
+| Page | What it shows |
+|------|--------------|
+| **Home** | System overview, KPI summary, pipeline architecture |
+| **Leaderboards** | xRAPM, RAPM, O/D splits, xShot overperformance — ranked with percentiles, filterable by team and position |
+| **Player Profile** | Shot charts, percentile profile, season trends, analyst interpretation |
+| **Lineup Evaluation** | Actual vs expected net rating for 5-player units |
+| **Decision Support** | Buy-low / sell-high / hidden contributor / breakout candidate categories |
+| **Daily Stat Challenge** | Guess the Top 5 for today's stat category — Wordle-style, new puzzle every day |
+| **Methodology** | xShot model docs, RAPM/xRAPM design, calibration, feature importance, limitations |
+| **Glossary** | Definitions for all model terms and metrics |
 
-- Collects and stores historical NBA play-by-play data across multiple seasons
-- Reconstructs and analyzes every field goal attempt in the dataset
-- Estimates shot difficulty using machine learning (`xShot`)
-- Measures which players consistently make harder shots than expected
-- Builds player impact models that account for teammate and opponent context
-- Produces queryable analytics outputs for downstream dashboards, visualizations, and research
+## Screenshots
+
+![Home](dashboard-screenshots/home.png)
+
+![Leaderboards](dashboard-screenshots/leaderboards.png)
+
+![Player Profile](dashboard-screenshots/player-profile.png)
+
+![Lineup Evaluation](dashboard-screenshots/lineup-evaluation.png)
+
+![Decision Support](dashboard-screenshots/decision-support.png)
+
+![Daily Stat Challenge](dashboard-screenshots/daily-stat-challenge.png)
+
+![Methodology](dashboard-screenshots/methodology.png)
+
+![Glossary](dashboard-screenshots/glossary.png)
 
 ## What It Measures
 
-**xShot** - The probability that a given field goal attempt is made, based solely on pre-shot information: shot location, shot type, and game context. Analagous to expected goals (xG) in soccer analytics.
+### xShot
+The probability that a given field goal attempt is made, based solely on pre-shot observable context: shot location, shot type (dunk, layup, pull-up, etc.), and game context (clock, period, playoffs). Analogous to expected goals (xG) in soccer analytics. **The model does not know who is shooting** — it measures shot difficulty, not shooter quality.
 
-From xShot, the system produces:
+**Model**: XGBoost binary classifier, 30 features, trained on 2014-15→2022-23, tested on 466k held-out shots from 2023-24→2024-25. Achieves **7.7% log-loss reduction** over a mean-FG% naive baseline.
 
-**Shot-Making Over Expected (SMOE)** - Measures how much a player outperforms or underperforms the expected value of their shot attempts based on shot quality. This isolates shot-making ability from raw scoring volume and shot selection. Players who rank highly consistently convert difficult attempts at above-expected rates while reliably finishing efficient opportunities. 2025-26 regular season leaders include elite scorers and shot creators such as Nikola Jokic, Kevin Durant, Shai Gilgeous-Alexander, Stephen Curry, Kawhi Leonard, and Jamal Murray, suggesting the model captures meaningful shooting talent and difficult shot-making ability.
+### RAPM / xRAPM
+Ridge regression over 421,849 lineup stints, estimating each player's marginal impact on team scoring margin per 100 possessions while controlling for all teammates and opponents.
 
-**Player Impact (RAPM / xRAPM)** - Regularized adjusted plus-minus models estimating a player’s marginal impact on team scoring efficiency per 100 possessions, controlling for teammates and opponents via ridge regression over lineup stint data. Three variants are produced:
+- **RAPM** — actual net scoring margin (includes shot-making variance and luck)
+- **xRAPM** — xShot-derived expected scoring margin (removes variance, measures process)
+- **RAPM − xRAPM** — the process gap: positive = outscoring process (may regress), negative = underscoring process (may improve)
+- **O-RAPM / D-RAPM** — offensive and defensive decomposition via doubled design matrix
 
-- **RAPM** — net actual scoring margin per 100 possessions. Stars on winning teams rank highly.
-- **xRAPM** — net expected scoring margin (xShot) per 100 possessions. More process-oriented; less susceptible to shooting variance.
-- **RAPM − xRAPM** — gap between outcomes and process; positive = outscores expected lineup margins (finishing, FTs, clutch shot-making).
+## Architecture
 
-A v2 model produces **3-year pooled RAPM with box-score prior** (`rapm_prior`), which reduces single-season noise by pooling stints across three rolling seasons and shrinking estimates toward each player’s historical plus/minus baseline. Recommended for leaderboards. All ratings are queryable via the `player_impact_leaderboard` materialized view.
+```
+NBA Stats API (nba_api)
+        ↓
+  PostgreSQL DB
+    play_by_play (7.5M events)
+    player_season_stats
+    games, players, teams
+        ↓
+  Feature Engineering
+    30 shot features (spatial, shot-type, context)
+        ↓
+  XGBoost xShot Model
+    P(make) per field goal attempt
+    → shot_predictions (2.68M rows)
+        ↓
+  Stint Construction
+    5v5 possession segments
+    → lineup_stints (421,849 stints)
+        ↓
+  RAPM / xRAPM (Ridge Regression)
+    v1: single-season, λ=30k
+    v2: 3-year pooled + box-score prior
+    → player_impact_leaderboard
+        ↓
+  Materialized Views
+    player_career_stats
+    player_shot_zones
+    team_shot_quality
+        ↓
+  Streamlit Dashboard (8 pages)
+```
 
-## Why This Matters
+## Key Results
 
-Raw box score statistics and even traditional plus-minus metrics are heavily influenced by context and short-term variance. Team scheme, lineup quality, role, shot variance, and opponent strength all affect observed outcomes, making it difficult to isolate underlying player impact.
+| Metric | Value |
+|--------|-------|
+| xShot log-loss reduction | **7.7%** over naive baseline |
+| Test shots | 466,000 (2023-24 → 2024-25) |
+| xRAPM year-over-year R² | Consistently exceeds RAPM R² |
+| Pooled estimate noise | ~40% lower std vs single-season |
+| Lineup stints processed | 421,849 across 15,370 games |
+| Seasons covered | 12 (2014-15 → 2025-26, Regular Season + Playoffs) |
 
-This project focuses on process-based, context-adjusted evaluation:
+## Project Structure
 
-- **xShot** estimates the probability a shot is made given its difficulty and context. Comparing actual results against expected results helps separate shot-making skill from shot selection, role, and shooting variance.
-
-- **xRAPM** extends traditional regularized adjusted plus-minus by incorporating expected shot quality into possession-level evaluation. Instead of relying purely on made and missed shots, the model emphasizes the quality of opportunities created and allowed while still controlling for teammates and opponents on the floor.
-
-The underlying assumption is that process tends to be more stable and predictive than short-term results alone. Together, these models aim to provide a more reliable estimate of individual player impact and sustainable performance.
-
-## Engineering Design
-- **Idempotent ingestion** - Every game can be re-fetched and re-inserted safely. `ingestion_log` checkpointing skips previous successsfully inserted games, enabling partial restarts without  duplicate data.
-- **Temporal model validation** - Train/test split is strictly chronological (train: 2014-15 → 2022-23, test: 2023-24 + 2024-25). No future data leaks into training.
-- **Calibrated probabilities** - XGBoost outputs validated against actual FG% across all 12 seasons (regular season + playoffs). Max deviation <2.5% per season, no systematic bias. Platt scaling not needed.
-- **Queryable analytics layer** - All outputs live in Postgres, directly accessible to dashboards and downstream models without re-running Python.
-- **Schema-driven transforms** - Column lists are derived dynamically from SQLAlchemy schema definitions, preventing schema drift bugs.
-
-## Tech Stack
-
-- **Data source:** NBA Stats API via `nba_api` (play-by-play, player/team box scores, metadata)
-- **Storage:** PostgreSQL -raw PBP events, reference tables, materialized views
-- **Machine Learning** XGBoost binary classifier, schikit-learn evaluation, joblib persistence
-- **Feature store:** Parquet (`data/shots_features.parquet`) with JSON metadata sidecar
-- **Dashboard:** Streamlit + Plotly (interactive leaderboards, player profiles, team analytics)
-- **Orchestration:** Python 3.11, SQLAlchemy, pandas, numpy, scipy
-- **Environment:** Conda (`environment.yml`)
+```
+nba-impact-model/
+├── dashboard/               # Streamlit application
+│   ├── Home.py              # Dashboard home page
+│   ├── pages/               # 8 pages (Leaderboards → Glossary)
+│   └── utils/               # db, queries, shot_queries, viz, theme, court
+├── src/
+│   ├── ingestion/           # Data pipeline: NBA API → PostgreSQL
+│   │   ├── pipeline.py      # End-to-end runner (--season, --season_type flags)
+│   │   ├── fetch.py         # API calls with retry/backoff
+│   │   ├── load.py          # Play-by-play upsert
+│   │   ├── load_player_stats.py  # Traditional stats + position data
+│   │   └── schema.py        # SQLAlchemy table definitions
+│   ├── features/
+│   │   ├── build_features.py  # 30-feature engineering for xShot
+│   │   ├── build_stints.py    # Lineup stint construction
+│   │   └── build_views.py     # Materialized view refresh
+│   ├── models/
+│   │   ├── train_xshot.py     # XGBoost xShot model
+│   │   ├── predict.py         # xShot inference on all FGA
+│   │   ├── train_xrapm.py     # Single-season RAPM/xRAPM
+│   │   └── train_xrapm_v2.py  # Pooled + prior RAPM (v2)
+│   └── analysis/
+│       └── build_views.py     # team_shot_quality + player_career_stats views
+├── models/                  # Trained model artifacts + metadata
+│   ├── xshot_v1.pkl         # XGBoost model (pickle)
+│   ├── xshot_v1_metadata.json
+│   ├── feature_importance.json
+│   └── calibration_data.json
+├── tests/                   # pytest test suite
+│   ├── test_queries.py      # DB query schema + filter tests
+│   ├── test_game_logic.py   # Game seed stability, position mapping
+│   └── test_model.py        # Model artifact load + prediction range
+├── docs/
+│   ├── PIPELINE.md          # Full pipeline documentation
+│   ├── XSHOT_MODEL.md       # xShot model design and evaluation
+│   └── RAPM_MODEL.md        # RAPM/xRAPM model design
+├── dashboard-screenshots/   # Dashboard page screenshots
+├── .env.example             # Environment variable template
+├── environment.yml          # Conda environment definition
+└── requirements.txt         # pip dependencies
+```
 
 ## Setup
 
-1. Create conda environment: `conda env create -f environment.yml`
-2. Activate: `conda activate nba-impact`
-3. Add `.env` with: `DB_URL=postgresql://user:password@host/db`
-4. Create Postgres tables - see `docs/PIPELINE.md` for schema SQL
+```bash
+# Clone and set up environment
+git clone https://github.com/mishareiss/nba-impact-model.git
+cd nba-impact-model
+conda env create -f environment.yml
+conda activate nba-impact
 
-## Running the Pipeline
+# Configure database
+cp .env.example .env
+# Edit .env: set DATABASE_URL=postgresql://user:pass@localhost/nba
 
-```
-# 1. Ingest play-by-play (2014-15 → 2025-26, ~7.5M events)
-python -m src.ingestion.pipeline
+# Run full pipeline
+python -m src.ingestion.pipeline                    # Ingest play-by-play (all seasons)
+python -m src.ingestion.load_player_stats           # Traditional stats + position
+python -m src.features.build_features               # Feature engineering
+python -m src.models.train_xshot                    # Train xShot model
+python -m src.models.predict                        # Run inference on all FGA
+python -m src.features.build_stints                 # Construct lineup stints
+python -m src.models.train_xrapm                    # Single-season RAPM/xRAPM
+python -m src.models.train_xrapm_v2                 # Pooled RAPM (v2)
+python -m src.features.build_views                  # Refresh materialized views
 
-# Ingest a single season
-python -m src.ingestion.pipeline --season 2024-25 --season_type "Regular Season"
+# Launch dashboard
+streamlit run dashboard/Home.py
 
-# Retry a specific game by ID
-python -m src.ingestion.pipeline --game_id 0021400001 --season 2024-25
-
-2. Load reference tables (run once, re-run at start of each new season)
-python -m src.ingestion.load_players
-python -m src.ingestion.load_teams
-python -m src.ingestion.load_player_stats
-python -m src.ingestion.load_team_stats
-
-# 3. Build ML feature dataset
-python src/features/build_features.py
-
-# 4. Train xShot model
-python src/models/train_xshot.py
-
-# 5. Generate xShot predictions → writes to shot_predictions table
-python src/models/predict.py
-
-# 6. Build lineup stints
-python -m src.features.build_stints
-
-# 7. Train RAPM and xRAPM (single-season)
-python -m src.models.train_xrapm
-
-# 8. Train pooled RAPM with prior (3-year windows)
-python -m src.models.train_xrapm_v2
-
-# 9. Build analytics materialized views (team shot quality + player career stats)
-python -m src.analysis.build_views
-
-# 10. Launch dashboard
-streamlit run dashboard/app.py
+# Run tests
+pytest tests/
 ```
 
-## Project Status
+## Tests
 
-|**Step**|**Status**|**Notes**|
-|----|------|----------|
-|PBP ingestion (2014-15 → 2025-26)|✅ Complete|~7.5M events, idempotent with checkpointing|
-|`shots` materialized view|✅ Complete|2.68M field goal attempts|
-|Reference tables (players, teams, box scores)|✅ Complete|All seasons 2014-15 → 2025-26, regular season + playoffs|
-|Feature engineering|✅ Complete|30 features, parquet with metadata sidecar|
-|xShot model v1 training|✅ Complete|XGBoost, 7.7% log loss reduction, calibrated|
-|xShot prediction generation|✅ Complete|2.68M shots scored, stored in Postgres|
-|Player shot quality analytics|✅ Complete|Validated - elite players rank as expected|
-|Stint data construction|✅ Complete|Parse substitution events → lineup stints|
-|Stint-level xShot aggregation|✅ Complete|Aggregate predictions to each lineup stint|
-|RAPM / xRAPM v1 (single-season)|✅ Complete|Ridge regression, λ=30k, min 1000 poss, both RAPM and xRAPM stored|
-|RAPM v2 (3-year pooled + prior)|✅ Complete|Rolling 3-season windows, box-score prior, 4,914 ratings|
-|Player impact leaderboard|✅ Complete|`player_impact_leaderboard` mat. view with names, teams, box stats|
-|Team shot quality analytics|✅ Complete|`team_shot_quality` mat. view, offense + defense xShot metrics per team/season|
-|Season-over-season trend analysis|✅ Complete|`player_career_stats` mat. view joins xShot, RAPM, box score per player/season|
-|Interactive dashboard|✅ Complete|Streamlit: Leaderboards, Player Profile, Team Analytics pages|
-|Automated pipeline refresh|📋 Planned|New season ingestion + view refresh|
+```bash
+pytest tests/ -v
+```
 
+The test suite covers:
+- SQL query functions (column schema, filter correctness, row count sanity)
+- Game logic (seed stability, position mapping, stat category structure)
+- Model artifact (loads without error, predictions in valid probability range)
 
+## Resume Bullets
+
+- Engineered an end-to-end NBA analytics platform ingesting 7.5M play-by-play events via NBA Stats API and storing in PostgreSQL, supporting 12 seasons of shot predictions and player impact ratings
+- Trained an XGBoost shot quality model (xShot) on 2.68M field goal attempts with 30 spatial and contextual features, achieving 7.7% log-loss reduction over a naive baseline on a 466k-shot holdout
+- Built RAPM and xRAPM player impact models via Ridge regression over 421,849 5v5 lineup stints, demonstrating that process-based xRAPM has higher year-over-year R² than outcome-based RAPM
+- Developed an 8-page Streamlit analytics dashboard with interactive shot charts, percentile profiles, lineup evaluation (actual vs expected net rating), automated player categorisation (buy-low/sell-high), and a daily stat challenge mini-game
+- Implemented a pooled 3-year RAPM model anchored to a box-score prior, reducing single-season estimation noise by ~40% via Bayesian shrinkage toward historical per-minute baselines
+
+## Tech Stack
+
+Python · PostgreSQL · SQLAlchemy · XGBoost · scikit-learn · Streamlit · Plotly · pandas · NumPy · SciPy · nba_api

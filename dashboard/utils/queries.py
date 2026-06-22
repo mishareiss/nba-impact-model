@@ -82,10 +82,26 @@ def get_single_season_leaderboard(
     cte = _DEDUP_CTE.format(
         where="WHERE season = :season AND season_type = :season_type AND possessions >= :min_poss"
     )
-    return query(
-        cte + f"SELECT {_SELECT_COLS} FROM deduped ORDER BY rapm DESC NULLS LAST",
-        {"season": season, "season_type": season_type, "min_poss": min_poss},
-    )
+    # Wrap the deduped result then LEFT JOIN position (picks row with most minutes for traded players)
+    sql = cte + f"""
+, pos_map AS (
+    SELECT DISTINCT ON (person_id, season, season_type)
+        person_id, season, season_type,
+        NULLIF(TRIM(position), '') AS position
+    FROM player_season_stats
+    WHERE position IS NOT NULL AND TRIM(position) <> ''
+    ORDER BY person_id, season, season_type, min DESC NULLS LAST
+),
+lb AS (SELECT {_SELECT_COLS} FROM deduped)
+SELECT lb.*, pm.position
+FROM lb
+LEFT JOIN pos_map pm
+    ON  pm.person_id   = lb.person_id
+    AND pm.season      = lb.season
+    AND pm.season_type = lb.season_type
+ORDER BY lb.rapm DESC NULLS LAST
+"""
+    return query(sql, {"season": season, "season_type": season_type, "min_poss": min_poss})
 
 
 def get_pooled_leaderboard(min_poss: int = 1500) -> pd.DataFrame:
@@ -194,6 +210,203 @@ def get_team_trend(team: str, season_type: str) -> pd.DataFrame:
 def get_all_teams() -> list[str]:
     df = query("SELECT DISTINCT team FROM team_shot_quality ORDER BY team")
     return df["team"].tolist()
+
+
+# ---------------------------------------------------------------------------
+# Lineup Evaluation queries
+# ---------------------------------------------------------------------------
+
+def get_lineup_leaderboard(
+    season: str, season_type: str, min_poss: float = 250.0,
+) -> pd.DataFrame:
+    """
+    Aggregate lineup_stints from both home and away perspectives.
+    Returns one row per unique 5-player lineup with:
+      - total_poss, n_stints
+      - actual_net_rtg   (pts per 100 poss, actual)
+      - expected_net_rtg (xShot-derived pts per 100 poss)
+      - luck             (actual − expected)
+      - player_ids       (array text for display lookup)
+
+    min_poss=250 is the default floor — below ~200 possessions (~4-6 games of
+    5v5 time) net ratings are too noisy to be meaningful.
+    """
+    return query(
+        """
+        WITH all_sides AS (
+            SELECT home_players AS players,
+                   home_points - away_points    AS margin,
+                   home_xshot_pts - away_xshot_pts AS xshot_margin,
+                   total_poss
+            FROM lineup_stints
+            WHERE season = :season AND season_type = :season_type
+              AND total_poss > 0
+
+            UNION ALL
+
+            SELECT away_players AS players,
+                   away_points - home_points    AS margin,
+                   away_xshot_pts - home_xshot_pts AS xshot_margin,
+                   total_poss
+            FROM lineup_stints
+            WHERE season = :season AND season_type = :season_type
+              AND total_poss > 0
+        ),
+        agg AS (
+            SELECT
+                players,
+                COUNT(*)                                                AS n_stints,
+                SUM(total_poss)                                         AS total_poss,
+                ROUND(SUM(margin)::numeric       / SUM(total_poss)::numeric * 100, 2)    AS actual_net_rtg,
+                ROUND(SUM(xshot_margin)::numeric / SUM(total_poss)::numeric * 100, 2)    AS expected_net_rtg,
+                ROUND((SUM(margin) - SUM(xshot_margin))::numeric
+                      / SUM(total_poss)::numeric * 100, 2)                               AS luck
+            FROM all_sides
+            GROUP BY players
+            HAVING SUM(total_poss) >= :min_poss
+               AND COUNT(*) >= 5      -- at least 5 distinct stints; single-game blowout lineups excluded
+        )
+        SELECT * FROM agg
+        ORDER BY actual_net_rtg DESC NULLS LAST
+        """,
+        {"season": season, "season_type": season_type, "min_poss": min_poss},
+    )
+
+
+def get_player_id_name_map() -> dict[int, str]:
+    """Return {person_id: full_name} for all players in the players table."""
+    df = query("SELECT person_id, full_name FROM players WHERE full_name IS NOT NULL")
+    if df.empty:
+        return {}
+    return dict(zip(df["person_id"].astype(int), df["full_name"]))
+
+
+# ---------------------------------------------------------------------------
+# Decision Support queries
+# ---------------------------------------------------------------------------
+
+def get_decision_support(
+    season: str, season_type: str, min_poss: int = 500,
+) -> pd.DataFrame:
+    """
+    Return all qualifying players with xRAPM, RAPM, and gap for categorisation.
+    Called by the Decision Support page to derive player categories.
+    """
+    cte = _DEDUP_CTE.format(
+        where=(
+            "WHERE season = :season AND season_type = :season_type "
+            "AND possessions >= :min_poss"
+        )
+    )
+    return query(
+        cte + f"SELECT {_SELECT_COLS} FROM deduped ORDER BY xrapm DESC NULLS LAST",
+        {"season": season, "season_type": season_type, "min_poss": min_poss},
+    )
+
+
+def get_player_trajectory(season_type: str, min_poss: int = 300) -> pd.DataFrame:
+    """
+    Two consecutive seasons for the same player — used to identify improving players.
+    Returns pairs (season_a, season_b) where season_b = season_a + 1.
+    """
+    return query(
+        """
+        WITH base AS (
+            SELECT
+                person_id, full_name, team, season, season_type,
+                xrapm, rapm, possessions
+            FROM player_career_stats
+            WHERE season_type = :season_type
+              AND possessions >= :min_poss
+              AND xrapm IS NOT NULL
+        ),
+        pairs AS (
+            SELECT
+                a.person_id, a.full_name,
+                a.season   AS season_a, b.season   AS season_b,
+                a.xrapm    AS xrapm_a,  b.xrapm    AS xrapm_b,
+                a.rapm     AS rapm_a,   b.rapm     AS rapm_b,
+                a.possessions AS poss_a, b.possessions AS poss_b,
+                b.team
+            FROM base a
+            JOIN base b ON a.person_id = b.person_id
+              AND b.season = CONCAT(
+                  SPLIT_PART(a.season, '-', 1)::int + 1, '-',
+                  LPAD((SPLIT_PART(a.season, '-', 2)::int + 1)::text, 2, '0')
+              )
+        )
+        SELECT *,
+               ROUND((xrapm_b - xrapm_a)::numeric, 3) AS xrapm_delta
+        FROM pairs
+        ORDER BY xrapm_delta DESC
+        """,
+        {"season_type": season_type, "min_poss": min_poss},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Daily Stat Challenge queries
+# ---------------------------------------------------------------------------
+
+def get_daily_challenge_stats(
+    season: str, season_type: str = "Regular Season",
+    min_gp: int = 50, min_mpg: float = 15.0,
+) -> pd.DataFrame:
+    """
+    Return traditional per-game stats for all qualifying players.
+    Used by the Daily Stat Challenge page to populate the leaderboards.
+
+    Defaults require ≥50 GP and ≥15 MPG — enough games to rule out short-sample
+    flukes while still including players who missed a few weeks.
+    Percentage stats should be further filtered by the caller using the
+    fga_pg / fg3a_pg / fta_pg columns returned here.
+    """
+    return query(
+        """
+        SELECT DISTINCT ON (pss.person_id)
+            pss.person_id,
+            p.full_name,
+            pss.gp,
+            ROUND(pss.pts::numeric  / NULLIF(pss.gp, 0), 1)  AS ppg,
+            ROUND(pss.reb::numeric  / NULLIF(pss.gp, 0), 1)  AS rpg,
+            ROUND(pss.ast::numeric  / NULLIF(pss.gp, 0), 1)  AS apg,
+            ROUND(pss.stl::numeric  / NULLIF(pss.gp, 0), 1)  AS spg,
+            ROUND(pss.blk::numeric  / NULLIF(pss.gp, 0), 1)  AS bpg,
+            ROUND(pss.tov::numeric  / NULLIF(pss.gp, 0), 1)  AS tpg,
+            ROUND(pss.fg3m::numeric / NULLIF(pss.gp, 0), 1)  AS fg3m_pg,
+            ROUND(pss.fga::numeric  / NULLIF(pss.gp, 0), 1)  AS fga_pg,
+            ROUND(pss.fg3a::numeric / NULLIF(pss.gp, 0), 1)  AS fg3a_pg,
+            ROUND(pss.fta::numeric  / NULLIF(pss.gp, 0), 1)  AS fta_pg,
+            CASE WHEN pss.fga > 0
+                 THEN ROUND(pss.fgm::numeric / pss.fga::numeric, 3) END AS fg_pct,
+            CASE WHEN pss.fg3a > 0
+                 THEN ROUND(pss.fg3m::numeric / pss.fg3a::numeric, 3) END AS fg3_pct,
+            CASE WHEN pss.fta > 0
+                 THEN ROUND(pss.ftm::numeric / pss.fta::numeric, 3) END AS ft_pct,
+            ROUND(pss.oreb::numeric / NULLIF(pss.gp, 0), 1)  AS orpg,
+            ROUND(pss.dreb::numeric / NULLIF(pss.gp, 0), 1)  AS drpg,
+            ROUND(pss.min::numeric  / NULLIF(pss.gp, 0), 1)  AS mpg,
+            ROUND(pss.plus_minus::numeric / NULLIF(pss.gp, 0), 1) AS pm_pg,
+            ROUND(pss.pts::numeric, 0) AS pts_total,
+            ROUND(pss.reb::numeric, 0) AS reb_total,
+            ROUND(pss.ast::numeric, 0) AS ast_total,
+            ROUND(pss.stl::numeric, 0) AS stl_total,
+            ROUND(pss.blk::numeric, 0) AS blk_total,
+            ROUND(pss.fg3m::numeric, 0) AS fg3m_total
+        FROM player_season_stats pss
+        JOIN players p ON pss.person_id = p.person_id
+        WHERE pss.season = :season
+          AND pss.season_type = :season_type
+          AND pss.gp >= :min_gp
+          AND (pss.min::float / NULLIF(pss.gp, 0)) >= :min_mpg
+          AND p.full_name IS NOT NULL
+        ORDER BY pss.person_id, pss.team_id
+        """,
+        {
+            "season": season, "season_type": season_type,
+            "min_gp": min_gp, "min_mpg": min_mpg,
+        },
+    )
 
 
 def get_team_league_distribution(season: str, season_type: str) -> pd.DataFrame:

@@ -22,6 +22,7 @@ player_season_stats = Table(
   Column("team_id",     Integer, nullable=False),
   Column("season",      Text,    nullable=False),
   Column("season_type", Text,    nullable=False),
+  Column("position",    Text),
   Column("gp",          Integer),
   Column("min",         Float),
   Column("pts",         Float),
@@ -48,6 +49,7 @@ player_season_stats = Table(
 COL_MAP = {
     "PLAYER_ID":   "person_id",
     "TEAM_ID":     "team_id",
+    "PLAYER_POSITION": "position",
     "GP":          "gp",
     "MIN":         "min",
     "PTS":         "pts",
@@ -71,6 +73,17 @@ COL_MAP = {
     "PLUS_MINUS":  "plus_minus",
 }
 
+
+def ensure_position_column():
+    """Add position column to player_season_stats if it doesn't exist."""
+    with engine.begin() as conn:
+        conn.execute(
+            __import__("sqlalchemy").text(
+                "ALTER TABLE player_season_stats ADD COLUMN IF NOT EXISTS position TEXT"
+            )
+        )
+
+
 def fetch_season(season: str, season_type: str) -> pd.DataFrame:
     time.sleep(1)
     df = leaguedashplayerstats.LeagueDashPlayerStats(
@@ -80,18 +93,22 @@ def fetch_season(season: str, season_type: str) -> pd.DataFrame:
     ).get_data_frames()[0]
     return df
 
+
 def upsert(rows: list):
     if not rows:
         return
     stmt = pg_insert(player_season_stats).values(rows)
+    update_cols = {k: stmt.excluded[k] for k in COL_MAP.values() if k not in ("person_id", "team_id")}
     stmt = stmt.on_conflict_do_update(
         index_elements=["person_id", "team_id", "season", "season_type"],
-        set_={k: stmt.excluded[k] for k in COL_MAP.values() if k not in ("person_id", "team_id")},
+        set_=update_cols,
     )
     with engine.begin() as conn:
         conn.execute(stmt)
 
+
 def main():
+    ensure_position_column()
     total = 0
     for season in SEASONS:
         for season_type in SEASON_TYPES:
@@ -117,6 +134,7 @@ def main():
                 logger.error(f"{season} {season_type} - failed: {e}")
 
     logger.info(f"Done - {total:,} total rows upserted")
+
 
 if __name__ == "__main__":
     main()

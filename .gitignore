@@ -1,15 +1,26 @@
 # Environment
 .env
 
-# Generated data
+# Generated / large data files
 data/shots_features.parquet
+models/shots_features.parquet
+models/shots_features_metadata.json
+
+# Logs
 ingestion.log
+logs/
+*.log
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
 
 # Conda/pip
 *.egg-info/
@@ -17,3 +28,16 @@ __pycache__/
 # Models (large binary artifacts)
 models/*.pkl
 models/*.joblib
+
+# Cursor AI planning documents (internal)
+cursor_dashboard_prompt.md
+DASHBOARD_RECON_AND_PLAN.md
+DESIGN_PROPOSAL.md
+
+# Design reference screenshots (replaced by dashboard-screenshots/)
+dashboard/design-reference/
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
