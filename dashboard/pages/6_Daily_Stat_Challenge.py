@@ -189,20 +189,28 @@ LS_KEY = f"nba_challenge_{today.strftime('%Y%m%d')}"
 
 
 # ── localStorage restore (runs before defaults so saved state wins) ────────────
-# st_javascript returns 0 on its first call; the actual value arrives on rerun 2.
-# We only restore once per session (LS_LOADED flag prevents double-restore).
-LS_LOADED = f"{sk}ls_loaded"
+# st_javascript returns integer 0 on its very first call (JS hasn't executed yet).
+# The real localStorage value arrives on the next rerun as a string.
+# We track two flags:
+#   LS_READ_DONE  — localStorage read has completed (string returned, not 0)
+#   LS_LOADED     — state has been restored (or confirmed empty) from localStorage
+LS_LOADED    = f"{sk}ls_loaded"
+LS_READ_DONE = f"{sk}ls_read_done"
 _ls_raw = st_javascript(f'localStorage.getItem("{LS_KEY}") || ""', key="ls_read")
 
-if (LS_LOADED not in st.session_state
-        and isinstance(_ls_raw, str) and len(_ls_raw) > 2):
-    try:
-        _saved = json.loads(_ls_raw)
-        for _k, _v in _saved.items():
-            st.session_state[_k] = _v   # override any existing defaults
-    except Exception:
-        pass
-    st.session_state[LS_LOADED] = True
+_ls_read_complete = isinstance(_ls_raw, str)  # 0 (int) on first call → not done yet
+
+if _ls_read_complete and LS_LOADED not in st.session_state:
+    if len(_ls_raw) > 2:
+        try:
+            _saved = json.loads(_ls_raw)
+            for _k, _v in _saved.items():
+                st.session_state[_k] = _v
+        except Exception:
+            pass
+    # Mark done regardless of whether there was saved data
+    st.session_state[LS_LOADED]    = True
+    st.session_state[LS_READ_DONE] = True
 
 
 # ── Session state defaults (skipped for keys already restored) ─────────────────
@@ -610,16 +618,18 @@ if game_over:
     # ── RESET ─────────────────────────────────────────────────────────────────
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     if st.button("↩ Reset (practice mode)", use_container_width=True):
-        for k in list(defaults.keys()):
+        for k in list(defaults.keys()) + [LS_LOADED, LS_READ_DONE]:
             if k in st.session_state:
                 del st.session_state[k]
-        # Clear localStorage so the reset persists across refreshes
         st_javascript(f'localStorage.removeItem("{LS_KEY}"); 1', key="ls_clear")
         st.rerun()
 
-# ── Persist current state to localStorage on every rerun ─────────────────────
-_state_snapshot = {k: st.session_state.get(k) for k in defaults.keys()}
-st_javascript(
-    f"localStorage.setItem('{LS_KEY}', JSON.stringify({json.dumps(_state_snapshot)})); 1",
-    key="ls_write",
-)
+# ── Persist current state to localStorage — only after read has confirmed done ─
+# On run 1, st_javascript hasn't returned a real value yet; writing here would
+# overwrite existing saved progress with blank defaults before we ever read it.
+if st.session_state.get(LS_LOADED):
+    _state_snapshot = {k: st.session_state.get(k) for k in defaults.keys()}
+    st_javascript(
+        f"localStorage.setItem('{LS_KEY}', JSON.stringify({json.dumps(_state_snapshot)})); 1",
+        key="ls_write",
+    )

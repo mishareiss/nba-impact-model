@@ -309,23 +309,58 @@ GLOBAL_CSS = f"""
 [data-testid="stMultiSelect"] {{
     background: {SURFACE} !important;
 }}
-/* Tag chips inside multiselect — force transparent inner elements so no dark oval appears */
+/* ── MultiSelect tag fix ─────────────────────────────────────────────────────
+   Root cause: baseweb renders the typing InputContainer with position:absolute
+   (when unfocused) inside the flex ValueContainer. CSS absolute-positioning in
+   flex defaults to the flex-start static position, so the InputContainer lands
+   at (0,0) — directly over the first tag chip. baseweb applies its styles via
+   emotion CSS classes (not inline styles), so [style*="fit-content"] never
+   matched anything.
+   Fix:
+     1. Target the InputContainer via :has(input) — the div wrapping the input.
+     2. Give tag chips position:relative + z-index:1 so they sit above it.    ── */
+/* All divs inside the select that wrap the <input> — the InputContainer tree */
+[data-testid="stMultiSelect"] [data-baseweb="select"] div:has(input) {{
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+}}
+/* The input element itself */
+[data-testid="stMultiSelect"] input {{
+    background: transparent !important;
+    background-color: transparent !important;
+    color: {TEXT_PRIMARY} !important;
+}}
+/* Tag chip outer shell — solid bg so nothing behind bleeds through */
 [data-testid="stMultiSelect"] [data-baseweb="tag"] {{
-    background: rgba(96, 165, 250, 0.15) !important;
-    border: 1px solid rgba(96, 165, 250, 0.30) !important;
+    background: {SURFACE_MED} !important;
+    border: 1px solid rgba(96, 165, 250, 0.35) !important;
     color: {ACCENT} !important;
     border-radius: 4px !important;
+    position: relative !important;
+    z-index: 1 !important;
 }}
-[data-testid="stMultiSelect"] [data-baseweb="tag"] span,
-[data-testid="stMultiSelect"] [data-baseweb="tag"] [role="button"],
-[data-testid="stMultiSelect"] [data-baseweb="tag"] button,
-[data-testid="stMultiSelect"] [data-baseweb="tag"] svg {{
+/* All tag children — nested baseweb wrappers */
+[data-testid="stMultiSelect"] [data-baseweb="tag"] *,
+[data-testid="stMultiSelect"] [data-baseweb="tag"] *::before,
+[data-testid="stMultiSelect"] [data-baseweb="tag"] *::after {{
     background: transparent !important;
+    background-color: transparent !important;
     color: {ACCENT} !important;
 }}
-/* The inner content container that baseweb wraps the text in */
-[data-testid="stMultiSelect"] [data-baseweb="tag"] > span:first-child {{
-    background: transparent !important;
+/* Hide Streamlit's synthetic "Select all" / "Select N matches" first option.
+   aria-multiselectable="true" is set on the [role="listbox"] element inside the
+   menu, not on [data-baseweb="menu"] itself — so we must target the listbox directly.
+   The first [role="option"] is "Select all" whenever there are 2+ items;
+   :not(:only-child) ensures we never hide the sole real option.
+   Also hide the separator <li> that immediately follows the hidden option. */
+[role="listbox"][aria-multiselectable="true"] [role="option"]:first-child:not(:only-child),
+[data-baseweb="menu"] [role="listbox"][aria-multiselectable="true"] [role="option"]:first-child:not(:only-child) {{
+    display: none !important;
+}}
+[role="listbox"][aria-multiselectable="true"] > li:nth-child(2):not([role="option"]),
+[data-baseweb="menu"] [role="listbox"][aria-multiselectable="true"] > li:nth-child(2):not([role="option"]) {{
+    display: none !important;
 }}
 /* Select placeholder text */
 [data-baseweb="select"] [data-testid="stWidgetLabel"],

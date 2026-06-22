@@ -19,7 +19,7 @@ from scipy.stats import percentileofscore, gaussian_kde
 
 from dashboard.utils.db import get_seasons, get_season_types
 from dashboard.utils.queries import get_single_season_leaderboard, get_pooled_leaderboard
-from dashboard.utils.nba_static import player_headshot_url, team_color
+from dashboard.utils.nba_static import player_headshot_url, team_color, team_logo_url, team_text_color
 from dashboard.utils.theme import (
     inject_global_css, page_header, section_label, art_section,
     finding, chart_caption, tier_color,
@@ -130,6 +130,7 @@ with tab_single:
                                   value=25, step=5, key="ss_topn")
 
     df = get_single_season_leaderboard(season, season_type, int(min_poss))
+    df = df[df["full_name"].notna() & (df["full_name"].astype(str).str.strip() != "")]
 
     if df.empty:
         st.markdown(
@@ -144,7 +145,8 @@ with tab_single:
 
         # ── Filters row ───────────────────────────────────────────────────────
         fc1, fc2 = st.columns([3, 2])
-        all_teams   = sorted(df["team"].dropna().unique())
+        _MULTI_TEAM = {"2TM", "3TM", "4TM"}
+        all_teams   = sorted(t for t in df["team"].dropna().unique() if t not in _MULTI_TEAM)
         sel_teams   = fc1.multiselect("Filter by team  (blank = all)", all_teams, key="ss_teams")
         all_pos_groups = ["Guard", "Forward", "Center"]
         sel_pos     = fc2.multiselect("Filter by position  (blank = all)", all_pos_groups, key="ss_pos")
@@ -191,7 +193,15 @@ with tab_single:
                 fval    = float(val)
                 fmt_val = _fmt(val, fmt_spec)
                 pct     = percentileofscore(all_vals, fval, kind="rank") if len(all_vals) >= 2 else 50.0
-                tcolor  = team_color(str(row["team"]))
+                tcode   = str(row["team"])
+                tcolor  = team_text_color(tcode)
+                logo    = team_logo_url(tcode)
+                logo_html = (
+                    f'<img src="{logo}" width="22" height="22" '
+                    f'style="object-fit:contain;flex-shrink:0" '
+                    f'onerror="this.style.display=\'none\'">'
+                    if logo else ""
+                )
                 poss_v  = f'{int(row["possessions"]):,}' if str(row.get("possessions","")) not in ("","nan") else "—"
                 val_color = ACCENT_GREEN if fval > 0 else ("#EF4444" if fval < 0 else TEXT_SECONDARY)
                 if col_key in ("mean_xshot", "fg_pct_above_expected", "rapm_vs_xrapm"):
@@ -203,12 +213,14 @@ with tab_single:
                     f'padding:9px 14px;margin-bottom:5px">'
                     f'<div style="font-size:0.72rem;font-weight:700;color:{TEXT_MUTED};'
                     f'min-width:26px;text-align:center">#{rank_idx}</div>'
-                    f'<div style="flex:1">'
+                    f'<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">'
+                    f'{logo_html}'
+                    f'<div style="min-width:0">'
                     f'<div style="font-size:0.88rem;font-weight:600;color:{TEXT_PRIMARY}">'
                     f'{row["full_name"]}</div>'
                     f'<div style="font-size:0.72rem;font-weight:600;color:{tcolor}">'
-                    f'{row["team"]}</div>'
-                    f'</div>'
+                    f'{tcode}</div>'
+                    f'</div></div>'
                     f'<div style="font-size:0.72rem;color:{TEXT_MUTED};min-width:60px;'
                     f'text-align:right">{poss_v}<br>poss</div>'
                     f'<div style="min-width:70px;text-align:right">'
@@ -363,6 +375,7 @@ with tab_pooled:
     df_v2 = get_pooled_leaderboard(int(min_poss_v2))
     if not df_v2.empty:
         df_v2 = df_v2[df_v2["season_type"] == pooled_stype]
+        df_v2 = df_v2[df_v2["full_name"].notna() & (df_v2["full_name"].astype(str).str.strip() != "")]
 
     if df_v2.empty:
         st.markdown(
@@ -379,7 +392,8 @@ with tab_pooled:
             .reset_index(drop=True)
         )
 
-        sel_teams_v2 = st.multiselect("Filter by team", sorted(df_w["team"].dropna().unique()), key="v2_teams")
+        _MULTI_TEAM_W = {"2TM", "3TM", "4TM"}
+        sel_teams_v2 = st.multiselect("Filter by team", sorted(t for t in df_w["team"].dropna().unique() if t not in _MULTI_TEAM_W), key="v2_teams")
         if sel_teams_v2:
             df_w = df_w[df_w["team"].isin(sel_teams_v2)]
 
@@ -394,7 +408,15 @@ with tab_pooled:
             if val is None or str(val) == "nan":
                 continue
             fval   = float(val)
-            tcolor = team_color(str(row["team"]))
+            tcode  = str(row["team"])
+            tcolor = team_text_color(tcode)
+            logo   = team_logo_url(tcode)
+            logo_html = (
+                f'<img src="{logo}" width="22" height="22" '
+                f'style="object-fit:contain;flex-shrink:0" '
+                f'onerror="this.style.display=\'none\'">'
+                if logo else ""
+            )
             pct    = percentileofscore(all_v2, fval, kind="rank") if len(all_v2) >= 2 else 50.0
             poss_v = f'{int(row["possessions"]):,}' if str(row.get("possessions","")) not in ("","nan") else "—"
             val_color = ACCENT_GREEN if fval > 0 else ("#EF4444" if fval < 0 else TEXT_SECONDARY)
@@ -405,12 +427,14 @@ with tab_pooled:
                 f'padding:9px 14px;margin-bottom:5px">'
                 f'<div style="font-size:0.72rem;font-weight:700;color:{TEXT_MUTED};'
                 f'min-width:26px;text-align:center">#{rank_idx}</div>'
-                f'<div style="flex:1">'
+                f'<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">'
+                f'{logo_html}'
+                f'<div style="min-width:0">'
                 f'<div style="font-size:0.88rem;font-weight:600;color:{TEXT_PRIMARY}">'
                 f'{row["full_name"]}</div>'
                 f'<div style="font-size:0.72rem;font-weight:600;color:{tcolor}">'
-                f'{row["team"]}</div>'
-                f'</div>'
+                f'{tcode}</div>'
+                f'</div></div>'
                 f'<div style="font-size:0.72rem;color:{TEXT_MUTED};min-width:60px;'
                 f'text-align:right">{poss_v}<br>poss</div>'
                 f'<div style="min-width:70px;text-align:right">'

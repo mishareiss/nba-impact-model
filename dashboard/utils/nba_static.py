@@ -3,6 +3,8 @@ Static NBA reference data: team colors, team IDs, and CDN URL helpers.
 These do not require database access.
 """
 
+from __future__ import annotations
+
 # Primary brand colors for all 30 current NBA franchises
 TEAM_COLORS: dict[str, str] = {
     "ATL": "#E03A3E", "BOS": "#007A33", "BKN": "#000000",
@@ -59,3 +61,43 @@ def team_color(tricode: str, fallback: str = "#607D8B") -> str:
         or HISTORICAL_TEAM_COLORS.get(tricode)
         or fallback
     )
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _wcag_luminance(r: int, g: int, b: int) -> float:
+    def _lin(v: int) -> float:
+        s = v / 255.0
+        return s / 12.92 if s <= 0.03928 else ((s + 0.055) / 1.055) ** 2.4
+    return 0.2126 * _lin(r) + 0.7152 * _lin(g) + 0.0722 * _lin(b)
+
+
+def _contrast_ratio(hex_fg: str, hex_bg: str) -> float:
+    l1 = _wcag_luminance(*_hex_to_rgb(hex_fg))
+    l2 = _wcag_luminance(*_hex_to_rgb(hex_bg))
+    lighter, darker = max(l1, l2), min(l1, l2)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def team_text_color(tricode: str, bg: str = "#18181B", min_contrast: float = 3.5) -> str:
+    """Return the brand color lightened enough to be readable on `bg`.
+
+    Blends toward white in 10% steps until the WCAG contrast ratio ≥ min_contrast.
+    Falls back to white if no blend achieves it.
+    """
+    raw = team_color(tricode)
+    if _contrast_ratio(raw, bg) >= min_contrast:
+        return raw
+    r, g, b = _hex_to_rgb(raw)
+    for step in range(1, 11):
+        blend = step * 0.1
+        lr = int(r + (255 - r) * blend)
+        lg = int(g + (255 - g) * blend)
+        lb = int(b + (255 - b) * blend)
+        candidate = f"#{lr:02X}{lg:02X}{lb:02X}"
+        if _contrast_ratio(candidate, bg) >= min_contrast:
+            return candidate
+    return "#FFFFFF"
