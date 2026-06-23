@@ -1,0 +1,10 @@
+[build]
+builder = "NIXPACKS"
+watchPatterns = ["game/**", "nixpacks.toml", "railway.toml"]
+
+[deploy]
+startCommand = "streamlit run game/Home.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"
+healthcheckPath = "/_stcore/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

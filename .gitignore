@@ -5,6 +5,7 @@
 data/shots_features.parquet
 models/shots_features.parquet
 models/shots_features_metadata.json
+game_data_export.sql
 
 # Logs
 ingestion.log
