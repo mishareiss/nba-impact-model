@@ -22,7 +22,8 @@ if str(_root) not in sys.path:
 
 import hashlib
 import json
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -182,7 +183,8 @@ def _fmtv(v, spec: str) -> str:
 
 
 # ── Today's challenge ──────────────────────────────────────────────────────────
-today  = date.today()
+# Anchor to US Pacific so all users see the same puzzle regardless of server tz
+today  = datetime.now(ZoneInfo("America/Los_Angeles")).date()
 ch     = _get_challenge(today)
 sk     = f"dc_{today.strftime('%Y%m%d')}_"   # session-state key prefix
 LS_KEY = f"nba_challenge_{today.strftime('%Y%m%d')}"
@@ -613,7 +615,7 @@ if game_over:
         f'color:{TEXT_SECONDARY};text-transform:uppercase;margin-bottom:6px">Share your result</div>',
         unsafe_allow_html=True,
     )
-    st.code(_build_share_text(), language=None)
+    st.text_area("", value=_build_share_text(), height=120, disabled=True, label_visibility="collapsed")
 
     # ── RESET ─────────────────────────────────────────────────────────────────
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
