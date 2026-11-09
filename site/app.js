@@ -11,7 +11,7 @@
   const signed = (v, d = 1) => { if (v == null || isNaN(v)) return "–"; const t = Math.abs(v).toFixed(d); return +t === 0 ? t : (v > 0 ? "+" : MINUS) + t; };
   const pct = (v, d = 1) => (v == null ? "–" : (v * 100).toFixed(d) + "%");
   const fmtInt = (v) => (v == null ? "–" : Math.round(v).toLocaleString("en-US"));
-  const compact = (v) => (v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? Math.round(v / 1e3) + "K" : String(v));
+  const compact = (v) => (v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? Math.round(v / 1e3) + "K" : String(v));
   const shortSeason = (s) => s.slice(2);           // "2014-15" -> "14-15"
   const el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
@@ -29,7 +29,7 @@
   // ------------------------------------------------------------------ state
   const S = {
     season: null, stype: "Regular Season", minMin: 1000, window: "3yr",
-    sortKey: "xrapm", sortDir: -1, showAll: false, playerId: null, scMode: "diff",
+    sortKey: "impact", sortDir: -1, showAll: false, playerId: null,
   };
   const MIN_FGA = { "Regular Season": 300, Playoffs: 75 };
   const MIN_DEFAULT = { "Regular Season": [1000, 2500, 100], Playoffs: [150, 600, 25] };
@@ -77,8 +77,6 @@
   function bindControls() {
     $("#f-season").addEventListener("change", (e) => { S.season = e.target.value; renderAll(); });
     segment("#f-stype", (v) => { S.stype = v; syncMinSlider(true); renderAll(); });
-    segment("#f-window", (v) => { S.window = v; renderLeaderboard(); });
-    segment("#f-sc", (v) => { S.scMode = v; renderShotChart(); });
     const rng = $("#f-min");
     rng.addEventListener("input", () => { S.minMin = +rng.value; $("#f-min-out").textContent = fmtInt(S.minMin); });
     rng.addEventListener("change", () => renderAll());
@@ -116,7 +114,13 @@
     renderShotMaking();
     renderModel();
     if (first || S.playerId == null) {
-      const top = [...leaderboardRows()].sort((a, b) => b.xrapm - a.xrapm)[0];
+      const linked = +new URLSearchParams(location.search).get("player");
+      if (first && linked && ID_TO_NAME.has(linked)) {
+        selectPlayer(linked, false, true);
+        requestAnimationFrame(() => $("#profile").scrollIntoView({ block: "start" }));
+        return;
+      }
+      const top = [...leaderboardRows()].sort((a, b) => b.impact - a.impact)[0];
       if (top) selectPlayer(top.id, false, true); else renderProfile();
     } else renderProfile();
   }
@@ -129,76 +133,74 @@
   }
   function hasPooled(season, stype) { return POOLED.some((r) => r.season === season && r.stype === stype); }
 
+  // The public rating. Swap to "xrapm" once the xRAPM retune lands.
+  const RATING = "rapm_prior";
+
   function leaderboardRows() {
-    const pooledOK = hasPooled(S.season, S.stype);
-    const btn3 = $('#f-window button[data-v="3yr"]');
-    btn3.disabled = !pooledOK;
-    btn3.title = pooledOK ? "Pooled over the selected season and the two before it: more stable" : "Needs three seasons of data";
-    const win = pooledOK ? S.window : "1yr";
-    setSegment("#f-window", win);
-    let out;
-    if (win === "3yr") {
-      const teamOf = new Map(SEASONS.filter((r) => r.season === S.season && r.stype === S.stype).map((r) => [r.id, r.team]));
-      out = POOLED.filter((r) => r.season === S.season && r.stype === S.stype && r.xrapm != null && (r.min || 0) / 3 >= S.minMin)
-        .map((r) => ({ id: r.id, name: r.name || ID_TO_NAME.get(r.id) || "Unknown", team: teamOf.get(r.id) || r.team || "", xrapm: r.xrapm, rapm: r.rapm, min: r.min }));
-    } else {
-      out = SEASONS.filter((r) => r.season === S.season && r.stype === S.stype && r.xrapm != null && (r.min || 0) >= S.minMin)
-        .map((r) => ({ id: r.id, name: r.name, team: r.team, xrapm: r.xrapm, rapm: r.rapm, min: r.min }));
+    // team in the selected season, else most recent team on or before it
+    const teamOf = new Map();
+    for (const r of SEASONS) if (r.season <= S.season && r.stype === "Regular Season" && r.team) {
+      const cur = teamOf.get(r.id); if (!cur || cur.season <= r.season) teamOf.set(r.id, { season: r.season, team: r.team });
     }
-    out.forEach((r) => (r.luck = r.rapm != null ? r.rapm - r.xrapm : null));
-    out._win = win;
-    return out;
+    for (const r of SEASONS) if (r.season === S.season && r.stype === S.stype && r.team) teamOf.set(r.id, { season: r.season, team: r.team });
+    return POOLED.filter((r) => r.season === S.season && r.stype === S.stype && r[RATING] != null && (r.min || 0) / 3 >= S.minMin)
+      .map((r) => ({ id: r.id, name: r.name || ID_TO_NAME.get(r.id) || "Unknown", team: (teamOf.get(r.id) || {}).team || r.team || "", impact: r[RATING], min: r.min }));
   }
 
   function renderLeaderboard() {
-    const data = leaderboardRows(), win = data._win;
-    const byX = [...data].sort((a, b) => b.xrapm - a.xrapm);
+    const data = leaderboardRows();
+    const span = windowLabel(S.season);
+    const st = S.stype === "Playoffs" ? " playoffs" : "";
+    const tb = $("#lb tbody");
+    if (!hasPooled(S.season, S.stype)) {
+      tb.replaceChildren(); $("#lb-more").hidden = true;
+      $("#lb-title").textContent = "3-season impact";
+      setTakeaway("#t-impact", ["Impact ratings pool three seasons, so they start with the 2016-17 window. Pick 2016-17 or later."]);
+      return;
+    }
+    const byX = [...data].sort((a, b) => b.impact - a.impact);
     const k = S.sortKey, dir = S.sortDir;
     const sorted = [...data].sort((a, b) => {
       const va = a[k], vb = b[k];
       if (va == null) return 1; if (vb == null) return -1;
       return (typeof va === "string" ? va.localeCompare(vb) : va - vb) * dir;
     });
-    const shown = S.showAll ? sorted : sorted.slice(0, 25);
-    const maxAbs = Math.max(1, ...data.map((r) => Math.abs(r.xrapm)));
+    const topN = innerWidth < 560 ? 10 : 25;
+    const shown = S.showAll ? sorted : sorted.slice(0, topN);
+    const maxAbs = Math.max(1, ...data.map((r) => Math.abs(r.impact)));
     const rankOf = new Map(byX.map((r, i) => [r.id, i + 1]));
-    const span = win === "3yr" ? windowLabel(S.season) : S.season;
-    const st = S.stype === "Playoffs" ? " playoffs" : "";
 
     $$("#lb thead th[data-k]").forEach((th) => {
       if (th.dataset.k === k) th.setAttribute("aria-sort", dir < 0 ? "descending" : "ascending"); else th.removeAttribute("aria-sort");
     });
-    $("#lb-title").textContent = `${win === "3yr" ? "3-season" : "Single-season"} xRAPM, ${span}${st} · ${data.length} players`;
-    const tb = $("#lb tbody");
+    $("#lb-title").textContent = `3-season impact, ${span}${st} · ${data.length} players`;
     tb.replaceChildren(...shown.map((r) => {
-      const w = (Math.abs(r.xrapm) / maxAbs) * 50;
-      const pos = r.xrapm >= 0;
+      const w = (Math.abs(r.impact) / maxAbs) * 50;
+      const pos = r.impact >= 0;
       const bar = el("div", { class: "bar", "aria-hidden": "true" },
         el("span", { class: "zero" }), el("span", { class: "fill " + (pos ? "p" : "n"), style: `width:${w}%` }));
       const tr = el("tr", { tabindex: "0", "aria-label": `${r.name}, open profile` },
         el("td", { class: "rank" }, rankOf.get(r.id)),
         el("td", { class: "name" }, r.name),
-        el("td", { class: "team hide-sm" }, r.team || ""),
-        el("td", { class: "num xval" }, signed(r.xrapm)),
+        el("td", { class: "team" }, r.team || ""),
+        el("td", { class: "num xval" }, signed(r.impact)),
         el("td", { class: "barcell hide-sm" }, bar),
-        el("td", { class: "num hide-sm" }, signed(r.rapm)),
-        el("td", { class: "num luck" }, signed(r.luck)),
         el("td", { class: "num hide-sm" }, fmtInt(r.min)));
       const go = () => selectPlayer(r.id, true);
       tr.addEventListener("click", go);
       tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
       return tr;
     }));
-    $("#lb-more").hidden = data.length <= 25;
-    $("#lb-more").textContent = S.showAll ? "Show top 25" : `Show all ${data.length}`;
+    $("#lb-more").hidden = data.length <= topN;
+    $("#lb-more").textContent = S.showAll ? `Show top ${topN}` : `Show all ${data.length}`;
 
     const top = byX[0];
     if (!top) { setTakeaway("#t-impact", ["No players match these filters. Try lowering the minutes."]); return; }
     const second = byX[1];
     setTakeaway("#t-impact", [
-      strong(top.name), ` has the biggest expected impact${win === "3yr" ? " over " + span : " in " + S.season}${st}: `,
-      strong(signed(top.xrapm) + " points per 100 possessions"), " versus an average player",
-      second ? `, ahead of ${second.name} (${signed(second.xrapm)}).` : ".",
+      strong(top.name), ` had the biggest impact over ${span}${st}: his teams were `,
+      strong(signed(top.impact) + " points per 100 possessions"), " better with him than with an average player",
+      second ? `, ahead of ${second.name} (${signed(second.impact)}).` : ".",
     ]);
   }
 
@@ -219,7 +221,14 @@
     const POS = css("--pos"), NEG = css("--neg"), DOT = css("--dot"), SURF = css("--surface"), AXIS = css("--axis");
     const width = Math.max(300, host.clientWidth || 600);
     const nLab = width < 480 ? 2 : 3;
-    const labelled = new Set([...over.slice(0, nLab), ...under.slice(0, nLab)].map((d) => d.id));
+    // label the extremes, skipping any label that would collide with one already placed
+    const xs = d3.extent(data, (d) => d.x), ys = d3.extent(data, (d) => d.y);
+    const placed = [];
+    for (const d of [...over.slice(0, nLab), ...under.slice(0, nLab)]) {
+      const clash = placed.some((q) => Math.abs(q.x - d.x) < (xs[1] - xs[0]) * 0.09 && Math.abs(q.y - d.y) < (ys[1] - ys[0]) * 0.06);
+      if (!clash) placed.push(d);
+    }
+    const labelled = new Set(placed.map((d) => d.id));
     const lastName = (n) => { const p = n.split(" "); return p.length > 1 ? p.slice(1).join(" ") : n; };
     const tipTitle = (d) => `${d.name} (${d.team})\nFG% ${pct(d.fg)} vs expected ${pct(d.xfg)}\n${signed(d.y)} pts · ${fmtInt(d.fga)} shots`;
     const color = (d) => (hot.has(d.id) ? POS : cold.has(d.id) ? NEG : DOT);
@@ -233,7 +242,8 @@
         Plot.ruleY([0], { stroke: AXIS }),
         Plot.dot(data.filter((d) => !hot.has(d.id) && !cold.has(d.id)), { x: "x", y: "y", r: 4, fill: DOT, stroke: SURF, strokeWidth: 1.5 }),
         Plot.dot(data.filter((d) => hot.has(d.id) || cold.has(d.id)), { x: "x", y: "y", r: 5, fill: color, stroke: SURF, strokeWidth: 2 }),
-        Plot.text(data.filter((d) => labelled.has(d.id)), { x: "x", y: "y", text: (d) => lastName(d.name), dy: -11, fontSize: 11.5, fontWeight: 600, fill: css("--ink"), stroke: SURF, strokeWidth: 3, paintOrder: "stroke" }),
+        Plot.dot(data.filter((d) => d.id === S.playerId), { x: "x", y: "y", r: 9, fill: "none", stroke: css("--ink"), strokeWidth: 1.5 }),
+        Plot.text(data.filter((d) => labelled.has(d.id) || d.id === S.playerId), { x: "x", y: "y", text: (d) => lastName(d.name), dy: -11, fontSize: 11.5, fontWeight: 600, fill: css("--ink"), stroke: SURF, strokeWidth: 3, paintOrder: "stroke" }),
         Plot.tip(data, Plot.pointer({ x: "x", y: "y", title: tipTitle, maxRadius: 30, fill: SURF, stroke: AXIS })),
       ],
     });
@@ -266,7 +276,9 @@
   function selectPlayer(id, scroll, quiet) {
     S.playerId = id;
     $("#p-search").value = ID_TO_NAME.get(id) || "";
+    if (!quiet) { try { history.replaceState(null, "", "?player=" + id); } catch (e) { /* file:// etc. */ } }
     renderProfile();
+    if (SEASONS) renderShotMaking();
     if (scroll && !quiet) $("#profile").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 
@@ -314,7 +326,7 @@
     const [stype, season] = pick;
     const bins = p.charts[stype][season];
     const B = (p.bin_ft || 2) * 10;
-    const R = 32; // hexagon circumradius in court units (tenths of a foot)
+    const R = 24; // hexagon circumradius in court units (tenths of a foot)
     const hexes = new Map();
     for (const [bx, by, att, made, xs] of bins) {
       const x = bx * B + B / 2, y = by * B + B / 2;
@@ -329,22 +341,21 @@
     }
     const Y0 = -52.5, Y1 = 300, X0 = -250, X1 = 250;
     let data = [...hexes.values()].filter((h) => h.cy >= Y0 && h.cy <= Y1 && h.cx >= X0 && h.cx <= X1);
-    const maxAtt = Math.max(...data.map((h) => h.att));
+    const total = data.reduce((t, h) => t + h.att, 0);
+    const fullAt = Math.max(8, total * 0.05);   // a spot with 5%+ of his attempts draws full size; area scales below that
     const width = Math.max(280, Math.min(600, host.clientWidth || 520));
     const k = width / (X1 - X0);
     const height = Math.round((Y1 - Y0) * k);
     data.forEach((h) => {
       h.fg = h.made / h.att; h.xfg = h.xs / h.att;
       h.diff = (h.made - h.xs) / (h.att + 6);          // shrunk toward expected for small samples
-      h.rpx = Math.max(1.6, R * k * 0.94 * Math.sqrt(Math.min(1, h.att / (maxAtt * 0.35))));
+      h.rpx = R * k * 0.95 * Math.max(0.22, Math.sqrt(Math.min(1, h.att / fullAt)));
       h.ft = Math.hypot(h.cx, h.cy) / 10;
     });
     const HEX = { draw(ctx, size) { const rr = Math.sqrt(size / Math.PI); for (let i = 0; i < 6; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 3; i ? ctx.lineTo(rr * Math.cos(a), rr * Math.sin(a)) : ctx.moveTo(rr * Math.cos(a), rr * Math.sin(a)); } ctx.closePath(); } };
     const POS = css("--pos"), NEG = css("--neg"), MID = css("--mid"), AXIS = css("--axis"), SURF = css("--surface");
-    const color = S.scMode === "diff"
-      ? { type: "linear", domain: [-0.15, 0, 0.15], range: [NEG, MID, POS], clamp: true, interpolate: "lab" }
-      : { type: "linear", domain: [0.3, 0.7], range: [css("--chip") === "#262624" ? "#184f95" : "#cde2fb", css("--chip") === "#262624" ? "#9ec5f4" : "#104281"], clamp: true, interpolate: "lab" };
-    const fillOf = (h) => (S.scMode === "diff" ? h.diff : h.xfg);
+    const color = { type: "linear", domain: [-0.15, 0, 0.15], range: [NEG, MID, POS], clamp: true, interpolate: "lab" };
+    const fillOf = (h) => h.diff;
     const fig = Plot.plot({
       width, height, margin: 0,
       x: { domain: [X0, X1], axis: null }, y: { domain: [Y0, Y1], axis: null },
@@ -361,11 +372,7 @@
 
     // legend
     const lg = $("#sc-legend");
-    if (S.scMode === "diff") {
-      lg.replaceChildren(el("span", {}, "Colder"), el("span", { class: "ramp", style: `background:linear-gradient(90deg, ${NEG}, ${MID}, ${POS})` }), el("span", {}, "Hotter than expected"), el("span", {}, "· Bigger hexagon = more shots"));
-    } else {
-      lg.replaceChildren(el("span", {}, "Harder (30%)"), el("span", { class: "ramp", style: `background:linear-gradient(90deg, ${color.range[0]}, ${color.range[1]})` }), el("span", {}, "Easier (70%+) expected FG%"), el("span", {}, "· Bigger hexagon = more shots"));
-    }
+    lg.replaceChildren(el("span", {}, "Colder"), el("span", { class: "ramp", style: `background:linear-gradient(90deg, ${NEG}, ${MID}, ${POS})` }), el("span", {}, "Hotter than expected"), el("span", {}, "· Bigger hexagon = more shots · Hover for details"));
     const fallback = season !== S.season || stype !== S.stype;
     $("#sc-title").textContent = `Shot chart, ${season}${stype === "Playoffs" ? " playoffs" : ""}${fallback ? " (latest available)" : ""}`;
 
@@ -377,7 +384,7 @@
     const ps = $("#p-stats");
     ps.replaceChildren(
       ...[["Team", row ? row.team : "–"], ["FGA", fmtInt(row ? row.fga : tot.att)], ["FG%", pct(fg)], ["Expected", pct(xfg)],
-        ["vs. exp.", signed(diff) + " pts"], ["xRAPM", row ? signed(row.xrapm) : "–"]]
+        ["vs. exp.", signed(diff) + " pts"], ["Impact", (() => { const pr = POOLED.find((x) => x.id === id && x.season === season && x.stype === stype); return pr ? signed(pr[RATING]) : "–"; })()]]
         .map(([k2, v]) => el("span", {}, k2 + " ", strong(v))));
     const verb = diff >= 0.5 ? "above" : diff <= -0.5 ? "below" : "right at";
     setTakeaway("#t-p", [
@@ -407,30 +414,37 @@
   function renderTimeline() {
     const host = $("#tl-chart"), id = S.playerId;
     const name = ID_TO_NAME.get(id) || "";
-    const data = SEASONS.filter((r) => r.id === id && r.stype === S.stype && r.xrapm != null && (r.min || 0) >= (S.stype === "Playoffs" ? 50 : 300))
+    const data = POOLED.filter((r) => r.id === id && r.stype === S.stype && r[RATING] != null)
+      .map((r) => ({ season: r.season, v: r[RATING], min: r.min, team: r.team }))
       .sort((a, b) => a.season.localeCompare(b.season));
-    $("#tl-title").textContent = `${name}: impact by season${S.stype === "Playoffs" ? " (playoffs)" : ""}`;
-    if (data.length === 0) { host.replaceChildren(el("p", { class: "note" }, "No rated seasons for this selection.")); return; }
-    const S1 = css("--s1"), S2 = css("--s2"), SURF = css("--surface"), AXIS = css("--axis");
+    // how many of the three seasons in each window did he actually play?
+    const played = new Set(SEASONS.filter((r) => r.id === id && r.stype === "Regular Season" && (r.min || 0) > 0).map((r) => +r.season.slice(0, 4)));
+    data.forEach((d) => { const y = +d.season.slice(0, 4); d.n = [y - 2, y - 1, y].filter((x) => played.has(x)).length; d.thin = d.n < 3; });
+    const note = $("#tl-note");
+    if (data.length === 1) note.textContent = data[0].thin
+      ? `Only one rating so far (${data[0].n} season${data[0].n === 1 ? "" : "s"} played), so there's no trend to show yet. Early-career ratings rest on less data and lean more on the box-score prior.`
+      : "Only one three-season window has enough playing time to be rated (2,000+ possessions), so there's no trend to show yet.";
+    else if (data.some((d) => d.thin)) note.textContent = "Hollow points cover fewer than three seasons played (for example a rookie year), so they rest on less data and lean more on the box-score prior. The shaded column is the season selected above.";
+    else note.textContent = "Each point is the three-season impact rating ending that season. The shaded column is the season selected above.";
+    $("#tl-title").textContent = `${name}: impact over time${S.stype === "Playoffs" ? " (playoffs)" : ""}`;
+    if (data.length === 0) { host.replaceChildren(el("p", { class: "note" }, "No impact rating for this selection.")); return; }
+    const S1 = css("--s1"), SURF = css("--surface"), AXIS = css("--axis");
     const width = Math.max(280, host.clientWidth || 480);
-    const long = data.flatMap((d) => [{ season: d.season, k: "xRAPM", v: d.xrapm }, { season: d.season, k: "RAPM", v: d.rapm }]).filter((d) => d.v != null);
     const last = data[data.length - 1];
-    const ends = [{ season: last.season, k: "xRAPM", v: last.xrapm }, { season: last.season, k: "RAPM", v: last.rapm }].filter((d) => d.v != null);
-    if (ends.length === 2 && Math.abs(ends[0].v - ends[1].v) < 0.5) { const up = ends[0].v >= ends[1].v ? 0 : 1; ends[up].dy = -8; ends[1 - up].dy = 8; }
     const fig = Plot.plot({
       width, height: Math.round(Math.min(340, Math.max(240, width * 0.62))),
-      marginLeft: 40, marginRight: 52, marginBottom: 34, marginTop: 26,
+      marginLeft: 40, marginRight: 40, marginBottom: 34, marginTop: 26,
       style: { background: "transparent", fontSize: "12px", color: css("--ink-2") },
       x: { type: "point", label: null, tickFormat: shortSeason, padding: 0.3, domain: data.map((d) => d.season) },
-      y: { label: "↑ Points per 100 possessions", labelAnchor: "top", grid: true, nice: true, tickFormat: (d) => (d > 0 ? "+" : d < 0 ? MINUS : "") + Math.abs(d) },
-      color: { domain: ["xRAPM", "RAPM"], range: [S1, S2] },
+      y: { label: "↑ Points per 100 possessions vs. average", labelAnchor: "top", grid: true, nice: true, tickFormat: (d) => (d > 0 ? "+" : d < 0 ? MINUS : "") + Math.abs(d) },
       marks: [
         Plot.ruleY([0], { stroke: AXIS }),
-        Plot.ruleX([S.season], { stroke: css("--grid"), strokeWidth: 10, strokeOpacity: 0.9 }),
-        Plot.line(long, { x: "season", y: "v", stroke: "k", strokeWidth: 2, curve: "monotone-x" }),
-        Plot.dot(long, { x: "season", y: "v", fill: "k", r: 4, stroke: SURF, strokeWidth: 2 }),
-        ...ends.map((e) => Plot.text([e], { x: "season", y: "v", text: "k", dx: 9, dy: e.dy || 0, textAnchor: "start", fontSize: 11.5, fontWeight: 600, fill: css("--ink-2") })),
-        Plot.tip(data, Plot.pointerX({ x: "season", y: "xrapm", title: (d) => `${d.season} · ${d.team}\nxRAPM ${signed(d.xrapm)}\nRAPM ${signed(d.rapm)}\n${fmtInt(d.min)} minutes`, fill: SURF, stroke: AXIS })),
+        Plot.ruleX(data.some((d) => d.season === S.season) ? [S.season] : [], { stroke: css("--grid"), strokeWidth: 10, strokeOpacity: 0.9 }),
+        Plot.line(data, { x: "season", y: "v", stroke: S1, strokeWidth: 2, curve: "monotone-x" }),
+        Plot.dot(data.filter((d) => !d.thin), { x: "season", y: "v", fill: S1, r: 4, stroke: SURF, strokeWidth: 2 }),
+        Plot.dot(data.filter((d) => d.thin), { x: "season", y: "v", fill: SURF, r: 4, stroke: S1, strokeWidth: 2 }),
+        Plot.text([last], { x: "season", y: "v", text: (d) => signed(d.v), dx: 9, textAnchor: "start", fontSize: 11.5, fontWeight: 600, fill: css("--ink") }),
+        Plot.tip(data, Plot.pointerX({ x: "season", y: "v", title: (d) => `${windowLabel(d.season)}\nImpact ${signed(d.v)} per 100\n${d.n} of 3 seasons played · ${fmtInt(d.min)} minutes`, fill: SURF, stroke: AXIS })),
       ],
     });
     styleAxes(fig);

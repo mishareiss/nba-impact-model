@@ -161,6 +161,7 @@ footer { padding: 24px 0 48px; font-size: 13px; color: var(--muted); }
 
 /* ---------- responsive ---------- */
 @media (max-width: 860px) {
+  .filters { position: static; backdrop-filter: none; -webkit-backdrop-filter: none; }
   .grid2, .grid-profile, .grid-model { grid-template-columns: minmax(0, 1fr); }
   .lists { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
   .stats { grid-template-columns: repeat(2, 1fr); }

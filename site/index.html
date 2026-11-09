@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>NBA Shot Quality &amp; Impact</title>
-  <meta name="description" content="Which NBA players actually move the needle? An XGBoost shot-quality model (xShot) trained on 2.68M shots, and xRAPM player impact ratings built on top of it. By Misha Reiss.">
+  <meta name="description" content="Which NBA players actually move the needle? An XGBoost shot-quality model (xShot) trained on 2.7M shots, plus RAPM player impact ratings from 422K lineup stints. By Misha Reiss.">
   <meta property="og:title" content="NBA Shot Quality & Impact Model">
-  <meta property="og:description" content="xShot shot-quality model + xRAPM player impact ratings across 12 NBA seasons.">
+  <meta property="og:description" content="xShot shot-quality model + RAPM player impact ratings across 12 NBA seasons.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://mishareiss.github.io/nba-impact-model/og.png">
   <meta name="twitter:card" content="summary_large_image">
@@ -18,15 +18,15 @@
     <p class="eyebrow">Misha Reiss · Sports analytics project</p>
     <h1>NBA Shot Quality &amp; Impact Model</h1>
     <p class="lede">
-      I built a model that scores how hard every NBA shot is (<b>xShot</b>), then used it to rate each player by
-      the quality of shots their lineups create and allow (<b>xRAPM</b>), with luck stripped out.
+      I built a model that scores how hard every NBA shot is (<b>xShot</b>) and used it to find who makes shots they
+      shouldn't. Separately, a lineup-level regression measures how much each player actually moves his team's scoring margin.
     </p>
     <div class="links">
       <a href="https://github.com/mishareiss/nba-impact-model">Code &amp; methodology on GitHub →</a>
       <a href="#how">How this works</a>
     </div>
     <div class="stats" id="stats">
-      <div class="stat"><b data-k="shots">2.68M</b><span>shots scored by xShot</span></div>
+      <div class="stat"><b data-k="shots">2.7M</b><span>shots scored by xShot</span></div>
       <div class="stat"><b data-k="seasons">12</b><span>seasons, 2014-15 → 2025-26</span></div>
       <div class="stat"><b data-k="ll">7.7%</b><span>better log loss than a league-average baseline</span></div>
       <div class="stat"><b data-k="stints">422K</b><span>5-on-5 lineup stints rated</span></div>
@@ -49,35 +49,28 @@
     <section class="view" id="impact" aria-labelledby="t-impact">
       <p class="qnum">1 · Who makes their team better?</p>
       <h2 class="takeaway" id="t-impact">&nbsp;</h2>
-      <p class="sub"><b>xRAPM</b> is a player's estimated effect on his team's scoring margin per 100 possessions. It's measured from
-        the <i>quality</i> of shots created and allowed while he's on the floor, after accounting for every teammate and opponent.
+      <p class="sub"><b>Impact</b> is a player's <b>RAPM</b> (Regularized Adjusted Plus-Minus): his estimated effect on his team's scoring margin per 100 possessions, after
+        accounting for every teammate and opponent on the floor. It's pooled over three seasons and anchored to box-score stats for stability.
         0 is average. +2 is a very good starter.</p>
       <div class="card">
         <div class="card-head">
-          <h3 id="lb-title">Top players by xRAPM</h3>
-          <div class="seg" role="group" aria-label="Rating window" id="f-window">
-            <button type="button" data-v="3yr" aria-pressed="true" title="Pooled over the selected season and the two before it: more stable">3-season</button>
-            <button type="button" data-v="1yr" aria-pressed="false" title="Selected season only: noisier">Single season</button>
-          </div>
+          <h3 id="lb-title">3-season impact</h3>
         </div>
         <div class="tablewrap">
           <table class="lb" id="lb">
             <thead><tr>
               <th class="rank">#</th>
               <th data-k="name"><button type="button">Player</button></th>
-              <th data-k="team" class="hide-sm"><button type="button">Team</button></th>
-              <th data-k="xrapm" class="num"><button type="button" title="Expected impact, points per 100 possessions">xRAPM</button></th>
+              <th data-k="team"><button type="button">Team</button></th>
+              <th data-k="impact" class="num"><button type="button" title="Points per 100 possessions vs. an average player">Impact</button></th>
               <th class="barcell hide-sm" aria-hidden="true"></th>
-              <th data-k="rapm" class="num hide-sm"><button type="button">RAPM (actual)</button></th>
-              <th data-k="luck" class="num"><button type="button" title="RAPM minus xRAPM: points per 100 from shot-making and luck rather than shot quality">Luck</button></th>
-              <th data-k="min" class="num hide-sm"><button type="button">Minutes</button></th>
+              <th data-k="min" class="num hide-sm"><button type="button">Minutes (3 yrs)</button></th>
             </tr></thead>
             <tbody></tbody>
           </table>
         </div>
         <button type="button" class="linkbtn" id="lb-more">Show all</button>
-        <p class="note">Click a player to see their profile below. "Luck" is RAPM minus xRAPM: positive means the
-          team scored more than its shot quality predicted while he played, which tends to regress.</p>
+        <p class="note">Click a player to see their profile below. The minutes filter uses average minutes per season across the three-season window.</p>
       </div>
     </section>
 
@@ -110,10 +103,6 @@
         <div class="card">
           <div class="card-head">
             <h3 id="sc-title">Shot chart</h3>
-            <div class="seg" role="group" aria-label="Shot chart color" id="f-sc">
-              <button type="button" data-v="diff" aria-pressed="true">vs. expected</button>
-              <button type="button" data-v="xs" aria-pressed="false">Shot difficulty</button>
-            </div>
           </div>
           <div class="chart" id="sc-chart"></div>
           <div class="legend" id="sc-legend"></div>
@@ -121,11 +110,7 @@
         <div class="card">
           <div class="card-head"><h3 id="tl-title">Impact over time</h3></div>
           <div class="chart" id="tl-chart"></div>
-          <div class="legend">
-            <span><span class="sw" style="background:var(--s1)"></span>xRAPM (expected, from shot quality)</span>
-            <span><span class="sw" style="background:var(--s2)"></span>RAPM (actual points)</span>
-          </div>
-          <p class="note">Single-season ratings for the selected season type. Seasons under 300 minutes are hidden.</p>
+          <p class="note" id="tl-note"></p>
         </div>
       </div>
     </section>
@@ -148,7 +133,7 @@
       <div class="how-body">
         <h4>Data</h4>
         <p>Play-by-play for every regular-season and playoff game from 2014-15 to 2025-26, pulled from the NBA Stats API
-          (<code>nba_api</code>) into PostgreSQL: about 7.5M events and <span data-k="shots-full">2.68M</span> field-goal attempts with location,
+          (<code>nba_api</code>) into PostgreSQL: about 7.5M events and <span data-k="shots-full">2.7M</span> field-goal attempts with location,
           shot type and game clock.</p>
         <h4>xShot: how hard is this shot?</h4>
         <p>An XGBoost classifier predicts the probability a shot goes in using only what's known before the shot:
@@ -160,19 +145,15 @@
         <h4>Shot-making vs. expected</h4>
         <p>For each player, actual FG% minus the average xShot of his attempts. Positive means he converts more than an average
           shooter would on the same shots. Players need 300+ attempts in a regular season (75+ in the playoffs) to be shown.</p>
-        <h4>RAPM and xRAPM</h4>
+        <h4>Impact: RAPM (Regularized Adjusted Plus-Minus)</h4>
         <p>The game is split into 422K stints, stretches where the same ten players are on the floor. A ridge regression
-          then estimates each player's effect on the scoring margin per 100 possessions while controlling for everyone else on the court.</p>
-        <ul>
-          <li><b>RAPM</b> uses the points actually scored.</li>
-          <li><b>xRAPM</b> replaces made/missed shots with their xShot value, which removes shooting variance and keeps the
-            process: did the lineup create good shots and force bad ones?</li>
-          <li><b>3-season</b> ratings pool three years of stints. That cuts noise by about 40% compared with single seasons, so it's the default.</li>
-        </ul>
+          then estimates each player's effect on the scoring margin per 100 possessions while controlling for everyone else on the court.
+          Ratings pool three seasons of stints and use a box-score prior (per-minute plus-minus), which cuts noise by about 40% compared with single seasons.</p>
+        <p><b>In progress: xRAPM.</b> The same regression with every shot re-scored by its xShot value instead of make/miss, to separate
+          process from shooting luck. The current version shrinks too hard toward zero to rank players credibly, so it's being retuned before it goes on this page.</p>
         <h4>Limitations</h4>
         <p>xShot has no tracking data (defender distance, shooter speed), so "difficulty" is location- and play-type-based.
-          xRAPM only sees field goals, not turnovers or free-throw trips. Ridge shrinkage pulls everyone toward 0, so the
-          ratings here run a little smaller than public RAPM sites. Treat small differences as ties.</p>
+          Ridge shrinkage pulls everyone toward 0, so the ratings here run smaller than on public RAPM sites. Treat small differences as ties.</p>
       </div>
     </details>
   </main>
