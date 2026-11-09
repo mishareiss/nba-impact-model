@@ -67,6 +67,7 @@ h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0 0 10px; let
 }
 .filters .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding-top: 10px; padding-bottom: 10px; }
 .filters label { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; }
+.pick input { width: 220px; }
 select, input[type="search"] {
   font: inherit; font-size: 14px; color: var(--ink); background: var(--surface);
   border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px; min-height: 32px;
@@ -103,6 +104,12 @@ table.lb { width: 100%; border-collapse: collapse; font-size: 14px; font-variant
 .lb tbody tr { cursor: pointer; }
 .lb tbody tr:hover, .lb tbody tr:focus-visible { background: var(--chip); outline: none; }
 .lb .rank { color: var(--muted); width: 32px; }
+.lb tbody tr.sel, .lb tbody tr.sel:hover { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.lb tbody tr.sel td { border-bottom-color: color-mix(in srgb, var(--accent) 30%, var(--surface)); }
+.lb tbody tr.sel .rank { color: var(--ink); font-weight: 650; }
+.lb tbody tr.gap { cursor: default; }
+.lb tbody tr.gap:hover { background: none; }
+.lb tbody tr.gap td { color: var(--muted); text-align: center; white-space: normal; font-size: 13px; padding: 4px 8px; }
 .lb .name { font-weight: 600; }
 .lb .team { color: var(--ink-2); }
 .barcell { width: 30%; min-width: 140px; }
@@ -175,4 +182,6 @@ footer { padding: 24px 0 48px; font-size: 13px; color: var(--muted); }
   header.top { padding-top: 28px; }
   .filters .wrap { gap: 8px 12px; }
   input[type="range"] { width: 90px; }
+  .pick { width: 100%; }
+  .pick input { flex: 1; width: auto; }
 }

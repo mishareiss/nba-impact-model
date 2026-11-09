@@ -29,7 +29,7 @@
   // ------------------------------------------------------------------ state
   const S = {
     season: null, stype: "Regular Season", minMin: 1000, window: "3yr",
-    sortKey: "impact", sortDir: -1, showAll: false, playerId: null,
+    window: "3yr", sortKey: "impact", sortDir: -1, showAll: false, playerId: null,
   };
   const MIN_FGA = { "Regular Season": 300, Playoffs: 75 };
   const MIN_DEFAULT = { "Regular Season": [1000, 2500, 100], Playoffs: [150, 600, 25] };
@@ -85,9 +85,10 @@
       if (S.sortKey === k) S.sortDir *= -1; else { S.sortKey = k; S.sortDir = k === "name" || k === "team" ? 1 : -1; }
       renderLeaderboard();
     }));
+    segment("#f-window", (v) => { S.window = v; renderLeaderboard(); renderProfile(); });
     $("#lb-more").addEventListener("click", () => { S.showAll = !S.showAll; renderLeaderboard(); });
     const search = $("#p-search");
-    const pick = () => { const id = NAME_TO_ID.get(search.value.trim()); if (id) selectPlayer(id, false); };
+    const pick = () => { const id = NAME_TO_ID.get(search.value.trim()); if (id) selectPlayer(id); };
     search.addEventListener("change", pick);
     search.addEventListener("keydown", (e) => { if (e.key === "Enter") pick(); });
   }
@@ -117,7 +118,6 @@
       const linked = +new URLSearchParams(location.search).get("player");
       if (first && linked && ID_TO_NAME.has(linked)) {
         selectPlayer(linked, false, true);
-        requestAnimationFrame(() => $("#profile").scrollIntoView({ block: "start" }));
         return;
       }
       const top = [...leaderboardRows()].sort((a, b) => b.impact - a.impact)[0];
@@ -134,30 +134,41 @@
   function hasPooled(season, stype) { return POOLED.some((r) => r.season === season && r.stype === stype); }
 
   // The public rating. Swap to "xrapm" once the xRAPM retune lands.
-  const RATING = "rapm_prior";
+  const RATING = "rapm_prior";        // 3-season (pooled.json)
+  const RATING_1YR = "rapm";          // single season (seasons.json)
+  const effWindow = () => (S.window === "3yr" && hasPooled(S.season, S.stype) ? "3yr" : "1yr");
+  const ordinal = (n) => n + (["th", "st", "nd", "rd"][(n % 100 - 20) % 10] || ["th", "st", "nd", "rd"][n % 100] || "th");
 
-  function leaderboardRows() {
+  function teamMap() {
     // team in the selected season, else most recent team on or before it
     const teamOf = new Map();
     for (const r of SEASONS) if (r.season <= S.season && r.stype === "Regular Season" && r.team) {
       const cur = teamOf.get(r.id); if (!cur || cur.season <= r.season) teamOf.set(r.id, { season: r.season, team: r.team });
     }
     for (const r of SEASONS) if (r.season === S.season && r.stype === S.stype && r.team) teamOf.set(r.id, { season: r.season, team: r.team });
-    return POOLED.filter((r) => r.season === S.season && r.stype === S.stype && r[RATING] != null && (r.min || 0) / 3 >= S.minMin)
-      .map((r) => ({ id: r.id, name: r.name || ID_TO_NAME.get(r.id) || "Unknown", team: (teamOf.get(r.id) || {}).team || r.team || "", impact: r[RATING], min: r.min }));
+    return teamOf;
   }
 
+  // all rated players for the current season/type/window, before the minutes filter
+  function ratedRows(win = effWindow()) {
+    const teamOf = teamMap();
+    const src = win === "3yr"
+      ? POOLED.filter((r) => r.season === S.season && r.stype === S.stype && r[RATING] != null).map((r) => ({ ...r, impact: r[RATING], perSeason: (r.min || 0) / 3 }))
+      : SEASONS.filter((r) => r.season === S.season && r.stype === S.stype && r[RATING_1YR] != null).map((r) => ({ ...r, impact: r[RATING_1YR], perSeason: r.min || 0 }));
+    return src.map((r) => ({ id: r.id, name: r.name || ID_TO_NAME.get(r.id) || "Unknown", team: (teamOf.get(r.id) || {}).team || r.team || "", impact: r.impact, min: r.min, perSeason: r.perSeason }));
+  }
+  function leaderboardRows() { return ratedRows().filter((r) => r.perSeason >= S.minMin); }
+
   function renderLeaderboard() {
+    const win = effWindow();
+    const pooledOK = hasPooled(S.season, S.stype);
+    const b3 = $('#f-window button[data-v="3yr"]');
+    if (b3) { b3.disabled = !pooledOK; b3.title = pooledOK ? "Pooled over three seasons with a box-score prior: more stable (default)" : "3-season ratings start with the 2016-17 window"; }
+    setSegment("#f-window", win);
     const data = leaderboardRows();
-    const span = windowLabel(S.season);
+    const span = win === "3yr" ? windowLabel(S.season) : S.season;
     const st = S.stype === "Playoffs" ? " playoffs" : "";
     const tb = $("#lb tbody");
-    if (!hasPooled(S.season, S.stype)) {
-      tb.replaceChildren(); $("#lb-more").hidden = true;
-      $("#lb-title").textContent = "3-season impact";
-      setTakeaway("#t-impact", ["Impact ratings pool three seasons, so they start with the 2016-17 window. Pick 2016-17 or later."]);
-      return;
-    }
     const byX = [...data].sort((a, b) => b.impact - a.impact);
     const k = S.sortKey, dir = S.sortDir;
     const sorted = [...data].sort((a, b) => {
@@ -167,41 +178,60 @@
     });
     const topN = innerWidth < 560 ? 10 : 25;
     const shown = S.showAll ? sorted : sorted.slice(0, topN);
-    const maxAbs = Math.max(1, ...data.map((r) => Math.abs(r.impact)));
+    const maxAbs = Math.max(win === "3yr" ? 1 : 0.5, ...data.map((r) => Math.abs(r.impact)));
     const rankOf = new Map(byX.map((r, i) => [r.id, i + 1]));
+    const sel = S.playerId;
 
     $$("#lb thead th[data-k]").forEach((th) => {
       if (th.dataset.k === k) th.setAttribute("aria-sort", dir < 0 ? "descending" : "ascending"); else th.removeAttribute("aria-sort");
     });
-    $("#lb-title").textContent = `3-season impact, ${span}${st} · ${data.length} players`;
-    tb.replaceChildren(...shown.map((r) => {
+    $('#lb thead th[data-k="min"] button').textContent = win === "3yr" ? "Minutes (3 yrs)" : "Minutes";
+    $("#lb-title").textContent = `${win === "3yr" ? "3-season" : "Single-season"} impact, ${span}${st} · ${data.length} players`;
+
+    const mkRow = (r) => {
       const w = (Math.abs(r.impact) / maxAbs) * 50;
       const pos = r.impact >= 0;
       const bar = el("div", { class: "bar", "aria-hidden": "true" },
         el("span", { class: "zero" }), el("span", { class: "fill " + (pos ? "p" : "n"), style: `width:${w}%` }));
-      const tr = el("tr", { tabindex: "0", "aria-label": `${r.name}, open profile` },
+      const tr = el("tr", { tabindex: "0", class: r.id === sel ? "sel" : "", "aria-label": `${r.name}, select player` },
         el("td", { class: "rank" }, rankOf.get(r.id)),
         el("td", { class: "name" }, r.name),
         el("td", { class: "team" }, r.team || ""),
         el("td", { class: "num xval" }, signed(r.impact)),
         el("td", { class: "barcell hide-sm" }, bar),
         el("td", { class: "num hide-sm" }, fmtInt(r.min)));
-      const go = () => selectPlayer(r.id, true);
+      const go = () => selectPlayer(r.id);
       tr.addEventListener("click", go);
       tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
       return tr;
-    }));
+    };
+    const rowsOut = shown.map(mkRow);
+    const selRow = data.find((r) => r.id === sel);
+    if (sel != null && !shown.some((r) => r.id === sel)) {
+      if (selRow) {
+        rowsOut.push(el("tr", { class: "gap", "aria-hidden": "true" }, el("td", { colspan: "6" }, "⋯")));
+        rowsOut.push(mkRow(selRow));
+      } else {
+        const any = ratedRows().find((r) => r.id === sel);
+        const why = any ? `averages ${fmtInt(any.perSeason)} minutes per season, under the ${fmtInt(S.minMin)} filter` : `has no ${win === "3yr" ? "3-season" : "single-season"} rating for ${span}${st}`;
+        rowsOut.push(el("tr", { class: "gap" }, el("td", { colspan: "6" }, `${ID_TO_NAME.get(sel) || "This player"} isn't on this list: he ${why}.`)));
+      }
+    }
+    tb.replaceChildren(...rowsOut);
     $("#lb-more").hidden = data.length <= topN;
     $("#lb-more").textContent = S.showAll ? `Show top ${topN}` : `Show all ${data.length}`;
 
     const top = byX[0];
     if (!top) { setTakeaway("#t-impact", ["No players match these filters. Try lowering the minutes."]); return; }
     const second = byX[1];
-    setTakeaway("#t-impact", [
-      strong(top.name), ` had the biggest impact over ${span}${st}: his teams were `,
+    const parts = [
+      strong(top.name), ` had the biggest impact ${win === "3yr" ? "over" : "in"} ${span}${st}: his teams were `,
       strong(signed(top.impact) + " points per 100 possessions"), " better with him than with an average player",
       second ? `, ahead of ${second.name} (${signed(second.impact)}).` : ".",
-    ]);
+    ];
+    if (selRow && selRow.id !== top.id) parts.push(" ", strong(selRow.name), ` ranks ${ordinal(rankOf.get(selRow.id))} of ${data.length} at ${signed(selRow.impact)}.`);
+    setTakeaway("#t-impact", parts);
+    $("#lb-sub-1yr").hidden = win !== "1yr";
   }
 
   // ------------------------------------------------------------------ 2. shot-making scatter
@@ -248,7 +278,7 @@
       ],
     });
     styleAxes(fig);
-    fig.addEventListener("click", () => { const d = fig.value; if (d) selectPlayer(d.id, true); });
+    fig.addEventListener("click", () => { const d = fig.value; if (d) selectPlayer(d.id); });
     fig.style.cursor = "pointer";
     host.replaceChildren(fig);
 
@@ -256,8 +286,8 @@
       const n = el("li", { tabindex: "0", role: "button" },
         el("span", {}, el("span", { class: "k", style: `background:${c}` }), d.name),
         el("b", {}, signed(d.y)));
-      n.addEventListener("click", () => selectPlayer(d.id, true));
-      n.addEventListener("keydown", (e) => { if (e.key === "Enter") selectPlayer(d.id, true); });
+      n.addEventListener("click", () => selectPlayer(d.id));
+      n.addEventListener("keydown", (e) => { if (e.key === "Enter") selectPlayer(d.id); });
       return n;
     };
     lists.replaceChildren(
@@ -265,11 +295,18 @@
       el("div", {}, el("h4", {}, "Most below expected"), el("ol", {}, ...under.map((d) => li(d, NEG)))),
     );
     $("#sm-title").textContent = `FG% vs. expected, ${S.season}${S.stype === "Playoffs" ? " playoffs" : ""} · ${data.length} players`;
-    $("#sm-note").textContent = `Players with ${MIN_FGA[S.stype]}+ shot attempts and ${fmtInt(S.minMin)}+ minutes. Values are percentage points of FG%. Click a dot to open the profile.`;
+    $("#sm-note").textContent = `Players with ${MIN_FGA[S.stype]}+ shot attempts and ${fmtInt(S.minMin)}+ minutes. Values are percentage points of FG%. Click a dot to select that player.`;
     const b = over[0];
-    setTakeaway("#t-sm", [
+    const parts = [
       strong(b.name), " made ", strong(`${b.y.toFixed(1)} percentage points more`), ` of his shots than their difficulty predicts (${pct(b.fg)} on shots worth ${pct(b.xfg)}), the best mark among ${data.length} qualified players.`,
-    ]);
+    ];
+    const me = data.find((d) => d.id === S.playerId);
+    if (me && me.id !== b.id) parts.push(" ", strong(me.name), `: ${signed(me.y)} (${ordinal(byY.indexOf(me) + 1)}).`);
+    setTakeaway("#t-sm", parts);
+    if (S.playerId != null && !me) {
+      const r = SEASONS.find((x) => x.id === S.playerId && x.season === S.season && x.stype === S.stype);
+      $("#sm-note").textContent += ` ${ID_TO_NAME.get(S.playerId) || "The selected player"} isn't shown: ${r ? `${fmtInt(r.fga)} attempts and ${fmtInt(r.min)} minutes this season` : "he didn't play in this season"}.`;
+    }
   }
 
   // ------------------------------------------------------------------ 3. profile
@@ -278,7 +315,8 @@
     $("#p-search").value = ID_TO_NAME.get(id) || "";
     if (!quiet) { try { history.replaceState(null, "", "?player=" + id); } catch (e) { /* file:// etc. */ } }
     renderProfile();
-    if (SEASONS) renderShotMaking();
+    renderLeaderboard();
+    renderShotMaking();
     if (scroll && !quiet) $("#profile").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 
@@ -384,7 +422,7 @@
     const ps = $("#p-stats");
     ps.replaceChildren(
       ...[["Team", row ? row.team : "–"], ["FGA", fmtInt(row ? row.fga : tot.att)], ["FG%", pct(fg)], ["Expected", pct(xfg)],
-        ["vs. exp.", signed(diff) + " pts"], ["Impact", (() => { const pr = POOLED.find((x) => x.id === id && x.season === season && x.stype === stype); return pr ? signed(pr[RATING]) : "–"; })()]]
+        ["vs. exp.", signed(diff) + " pts"], [effWindow() === "3yr" ? "Impact (3-yr)" : "Impact (1-yr)", (() => { const pr = effWindow() === "3yr" ? POOLED.find((x) => x.id === id && x.season === season && x.stype === stype) : SEASONS.find((x) => x.id === id && x.season === season && x.stype === stype); const v = pr && pr[effWindow() === "3yr" ? RATING : RATING_1YR]; return v != null ? signed(v) : "–"; })()]]
         .map(([k2, v]) => el("span", {}, k2 + " ", strong(v))));
     const verb = diff >= 0.5 ? "above" : diff <= -0.5 ? "below" : "right at";
     setTakeaway("#t-p", [
@@ -414,19 +452,25 @@
   function renderTimeline() {
     const host = $("#tl-chart"), id = S.playerId;
     const name = ID_TO_NAME.get(id) || "";
-    const data = POOLED.filter((r) => r.id === id && r.stype === S.stype && r[RATING] != null)
-      .map((r) => ({ season: r.season, v: r[RATING], min: r.min, team: r.team }))
+    const win = effWindow();
+    const data = (win === "3yr"
+      ? POOLED.filter((r) => r.id === id && r.stype === S.stype && r[RATING] != null).map((r) => ({ season: r.season, v: r[RATING], min: r.min, team: r.team }))
+      : SEASONS.filter((r) => r.id === id && r.stype === S.stype && r[RATING_1YR] != null && (r.min || 0) >= (S.stype === "Playoffs" ? 50 : 300)).map((r) => ({ season: r.season, v: r[RATING_1YR], min: r.min, team: r.team })))
       .sort((a, b) => a.season.localeCompare(b.season));
     // how many of the three seasons in each window did he actually play?
-    const played = new Set(SEASONS.filter((r) => r.id === id && r.stype === "Regular Season" && (r.min || 0) > 0).map((r) => +r.season.slice(0, 4)));
-    data.forEach((d) => { const y = +d.season.slice(0, 4); d.n = [y - 2, y - 1, y].filter((x) => played.has(x)).length; d.thin = d.n < 3; });
+    const played = new Set(SEASONS.filter((r) => r.id === id && r.stype === S.stype && (r.min || 0) > 0).map((r) => +r.season.slice(0, 4)));
+    data.forEach((d) => { const y = +d.season.slice(0, 4); d.n = win === "3yr" ? [y - 2, y - 1, y].filter((x) => played.has(x)).length : 1; d.thin = win === "3yr" && d.n < 3; });
     const note = $("#tl-note");
-    if (data.length === 1) note.textContent = data[0].thin
-      ? `Only one rating so far (${data[0].n} season${data[0].n === 1 ? "" : "s"} played), so there's no trend to show yet. Early-career ratings rest on less data and lean more on the box-score prior.`
-      : "Only one three-season window has enough playing time to be rated (2,000+ possessions), so there's no trend to show yet.";
-    else if (data.some((d) => d.thin)) note.textContent = "Hollow points cover fewer than three seasons played (for example a rookie year), so they rest on less data and lean more on the box-score prior. The shaded column is the season selected above.";
+    if (win === "1yr") note.textContent = data.length === 1 ? "Only one rated season so far, so there's no trend to show yet." : "Single-season ratings (300+ minutes). They're noisier and more compressed than the 3-season version, so read the trend rather than single points.";
+    else if (data.length === 1) {
+      const d0 = data[0], seasonsTxt = `${d0.n} season${d0.n === 1 ? "" : "s"}`, games = S.stype === "Playoffs" ? " of playoff games" : "";
+      note.textContent = d0.n < 3
+        ? `Only one rating so far, built from ${seasonsTxt}${games}, so there's no trend yet. Ratings for newer players rest on less data and lean more on box-score stats.`
+        : `Only one rating so far: before ${d0.season}, ${name} hadn't played enough${games} to be rated (2,000+ possessions across three seasons), so there's no trend yet.`;
+    }
+    else if (data.some((d) => d.thin)) note.textContent = `Hollow points are built from fewer than three seasons${S.stype === "Playoffs" ? " of playoff games" : ""} (for example a rookie year), so they rest on less data and lean more on box-score stats. The shaded column is the season selected above.`;
     else note.textContent = "Each point is the three-season impact rating ending that season. The shaded column is the season selected above.";
-    $("#tl-title").textContent = `${name}: impact over time${S.stype === "Playoffs" ? " (playoffs)" : ""}`;
+    $("#tl-title").textContent = `${name}: ${win === "3yr" ? "3-season" : "single-season"} impact over time${S.stype === "Playoffs" ? " (playoffs)" : ""}`;
     if (data.length === 0) { host.replaceChildren(el("p", { class: "note" }, "No impact rating for this selection.")); return; }
     const S1 = css("--s1"), SURF = css("--surface"), AXIS = css("--axis");
     const width = Math.max(280, host.clientWidth || 480);
@@ -444,7 +488,7 @@
         Plot.dot(data.filter((d) => !d.thin), { x: "season", y: "v", fill: S1, r: 4, stroke: SURF, strokeWidth: 2 }),
         Plot.dot(data.filter((d) => d.thin), { x: "season", y: "v", fill: SURF, r: 4, stroke: S1, strokeWidth: 2 }),
         Plot.text([last], { x: "season", y: "v", text: (d) => signed(d.v), dx: 9, textAnchor: "start", fontSize: 11.5, fontWeight: 600, fill: css("--ink") }),
-        Plot.tip(data, Plot.pointerX({ x: "season", y: "v", title: (d) => `${windowLabel(d.season)}\nImpact ${signed(d.v)} per 100\n${d.n} of 3 seasons played · ${fmtInt(d.min)} minutes`, fill: SURF, stroke: AXIS })),
+        Plot.tip(data, Plot.pointerX({ x: "season", y: "v", title: (d) => `${win === "3yr" ? windowLabel(d.season) : d.season}\nImpact ${signed(d.v)} per 100\n${win === "3yr" ? "built from " + d.n + " of 3 seasons · " : ""}${fmtInt(d.min)} minutes`, fill: SURF, stroke: AXIS })),
       ],
     });
     styleAxes(fig);
