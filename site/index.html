@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NBA Shot Quality &amp; Impact</title>
+  <meta name="description" content="Which NBA players actually move the needle? An XGBoost shot-quality model (xShot) trained on 2.68M shots, and xRAPM player impact ratings built on top of it. By Misha Reiss.">
+  <meta property="og:title" content="NBA Shot Quality & Impact Model">
+  <meta property="og:description" content="xShot shot-quality model + xRAPM player impact ratings across 12 NBA seasons.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://mishareiss.github.io/nba-impact-model/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23eb6834'/%3E%3Cpath d='M2 16h28M16 2v28M6 6c6 5 6 15 0 20M26 6c-6 5-6 15 0 20' stroke='%230b0b0b' stroke-width='1.6' fill='none'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top wrap">
+    <p class="eyebrow">Misha Reiss · Sports analytics project</p>
+    <h1>NBA Shot Quality &amp; Impact Model</h1>
+    <p class="lede">
+      I built a model that scores how hard every NBA shot is (<b>xShot</b>), then used it to rate each player by
+      the quality of shots their lineups create and allow (<b>xRAPM</b>), with luck stripped out.
+    </p>
+    <div class="links">
+      <a href="https://github.com/mishareiss/nba-impact-model">Code &amp; methodology on GitHub →</a>
+      <a href="#how">How this works</a>
+    </div>
+    <div class="stats" id="stats">
+      <div class="stat"><b data-k="shots">2.68M</b><span>shots scored by xShot</span></div>
+      <div class="stat"><b data-k="seasons">12</b><span>seasons, 2014-15 → 2025-26</span></div>
+      <div class="stat"><b data-k="ll">7.7%</b><span>better log loss than a league-average baseline</span></div>
+      <div class="stat"><b data-k="stints">422K</b><span>5-on-5 lineup stints rated</span></div>
+    </div>
+  </header>
+
+  <nav class="filters" aria-label="Filters">
+    <div class="wrap">
+      <label>Season <select id="f-season"></select></label>
+      <div class="seg" role="group" aria-label="Season type" id="f-stype">
+        <button type="button" data-v="Regular Season" aria-pressed="true">Regular season</button>
+        <button type="button" data-v="Playoffs" aria-pressed="false">Playoffs</button>
+      </div>
+      <label>Min. minutes <input type="range" id="f-min" min="0" max="2500" step="100" value="1000"> <output id="f-min-out">1,000</output></label>
+    </div>
+  </nav>
+
+  <main class="wrap">
+    <!-- 1. Leaderboard -->
+    <section class="view" id="impact" aria-labelledby="t-impact">
+      <p class="qnum">1 · Who makes their team better?</p>
+      <h2 class="takeaway" id="t-impact">&nbsp;</h2>
+      <p class="sub"><b>xRAPM</b> is a player's estimated effect on his team's scoring margin per 100 possessions. It's measured from
+        the <i>quality</i> of shots created and allowed while he's on the floor, after accounting for every teammate and opponent.
+        0 is average. +2 is a very good starter.</p>
+      <div class="card">
+        <div class="card-head">
+          <h3 id="lb-title">Top players by xRAPM</h3>
+          <div class="seg" role="group" aria-label="Rating window" id="f-window">
+            <button type="button" data-v="3yr" aria-pressed="true" title="Pooled over the selected season and the two before it: more stable">3-season</button>
+            <button type="button" data-v="1yr" aria-pressed="false" title="Selected season only: noisier">Single season</button>
+          </div>
+        </div>
+        <div class="tablewrap">
+          <table class="lb" id="lb">
+            <thead><tr>
+              <th class="rank">#</th>
+              <th data-k="name"><button type="button">Player</button></th>
+              <th data-k="team" class="hide-sm"><button type="button">Team</button></th>
+              <th data-k="xrapm" class="num"><button type="button" title="Expected impact, points per 100 possessions">xRAPM</button></th>
+              <th class="barcell hide-sm" aria-hidden="true"></th>
+              <th data-k="rapm" class="num hide-sm"><button type="button">RAPM (actual)</button></th>
+              <th data-k="luck" class="num"><button type="button" title="RAPM minus xRAPM: points per 100 from shot-making and luck rather than shot quality">Luck</button></th>
+              <th data-k="min" class="num hide-sm"><button type="button">Minutes</button></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button type="button" class="linkbtn" id="lb-more">Show all</button>
+        <p class="note">Click a player to see their profile below. "Luck" is RAPM minus xRAPM: positive means the
+          team scored more than its shot quality predicted while he played, which tends to regress.</p>
+      </div>
+    </section>
+
+    <!-- 2. Shot-making -->
+    <section class="view" id="shotmaking" aria-labelledby="t-sm">
+      <p class="qnum">2 · Who beats shot difficulty?</p>
+      <h2 class="takeaway" id="t-sm">&nbsp;</h2>
+      <p class="sub">Every dot is a player. Left-to-right shows how hard his shots are (the FG% xShot expects from a league-average shooter).
+        Up-and-down shows how much better or worse he actually shot than that.</p>
+      <div class="grid2">
+        <div class="card">
+          <div class="card-head"><h3 id="sm-title">Actual FG% minus expected FG%</h3></div>
+          <div class="chart" id="sm-chart"></div>
+          <p class="note" id="sm-note"></p>
+        </div>
+        <div class="card lists" id="sm-lists"></div>
+      </div>
+    </section>
+
+    <!-- 3. Profile -->
+    <section class="view" id="profile" aria-labelledby="t-p">
+      <p class="qnum">3 · Player profile</p>
+      <h2 class="takeaway" id="t-p">&nbsp;</h2>
+      <div class="profile-head">
+        <input type="search" id="p-search" list="p-names" placeholder="Search a player…" aria-label="Search a player" autocomplete="off">
+        <datalist id="p-names"></datalist>
+        <div class="pstats" id="p-stats"></div>
+      </div>
+      <div class="grid-profile">
+        <div class="card">
+          <div class="card-head">
+            <h3 id="sc-title">Shot chart</h3>
+            <div class="seg" role="group" aria-label="Shot chart color" id="f-sc">
+              <button type="button" data-v="diff" aria-pressed="true">vs. expected</button>
+              <button type="button" data-v="xs" aria-pressed="false">Shot difficulty</button>
+            </div>
+          </div>
+          <div class="chart" id="sc-chart"></div>
+          <div class="legend" id="sc-legend"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3 id="tl-title">Impact over time</h3></div>
+          <div class="chart" id="tl-chart"></div>
+          <div class="legend">
+            <span><span class="sw" style="background:var(--s1)"></span>xRAPM (expected, from shot quality)</span>
+            <span><span class="sw" style="background:var(--s2)"></span>RAPM (actual points)</span>
+          </div>
+          <p class="note">Single-season ratings for the selected season type. Seasons under 300 minutes are hidden.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Model -->
+    <section class="view" id="model" aria-labelledby="t-m">
+      <p class="qnum">4 · How good is the model?</p>
+      <h2 class="takeaway" id="t-m">&nbsp;</h2>
+      <div class="grid-model">
+        <div class="card">
+          <div class="card-head"><h3>Calibration on 466K held-out shots</h3></div>
+          <div class="chart" id="cal-chart"></div>
+        </div>
+        <div class="tiles" id="tiles"></div>
+      </div>
+    </section>
+
+    <details class="how" id="how">
+      <summary>How this works</summary>
+      <div class="how-body">
+        <h4>Data</h4>
+        <p>Play-by-play for every regular-season and playoff game from 2014-15 to 2025-26, pulled from the NBA Stats API
+          (<code>nba_api</code>) into PostgreSQL: about 7.5M events and <span data-k="shots-full">2.68M</span> field-goal attempts with location,
+          shot type and game clock.</p>
+        <h4>xShot: how hard is this shot?</h4>
+        <p>An XGBoost classifier predicts the probability a shot goes in using only what's known before the shot:
+          location (distance, angle, zone, corner three), shot type (dunk, layup, pull-up, step-back, floater… 17 flags)
+          and context (period, clock, overtime, playoffs). It does <b>not</b> know who is shooting, so it measures difficulty,
+          not shooter skill, the same idea as expected goals (xG) in soccer.</p>
+        <p>Trained on 2014-15 → 2022-23 and tested on 2023-24 → 2024-25 (time-based split, so it never sees the
+          future). Test log loss is 0.638 vs. 0.691 for predicting league-average FG% on every shot (7.7% better), with a Brier score of 0.225.</p>
+        <h4>Shot-making vs. expected</h4>
+        <p>For each player, actual FG% minus the average xShot of his attempts. Positive means he converts more than an average
+          shooter would on the same shots. Players need 300+ attempts in a regular season (75+ in the playoffs) to be shown.</p>
+        <h4>RAPM and xRAPM</h4>
+        <p>The game is split into 422K stints, stretches where the same ten players are on the floor. A ridge regression
+          then estimates each player's effect on the scoring margin per 100 possessions while controlling for everyone else on the court.</p>
+        <ul>
+          <li><b>RAPM</b> uses the points actually scored.</li>
+          <li><b>xRAPM</b> replaces made/missed shots with their xShot value, which removes shooting variance and keeps the
+            process: did the lineup create good shots and force bad ones?</li>
+          <li><b>3-season</b> ratings pool three years of stints. That cuts noise by about 40% compared with single seasons, so it's the default.</li>
+        </ul>
+        <h4>Limitations</h4>
+        <p>xShot has no tracking data (defender distance, shooter speed), so "difficulty" is location- and play-type-based.
+          xRAPM only sees field goals, not turnovers or free-throw trips. Ridge shrinkage pulls everyone toward 0, so the
+          ratings here run a little smaller than public RAPM sites. Treat small differences as ties.</p>
+      </div>
+    </details>
+  </main>
+
+  <footer class="wrap">
+    Built by Misha Reiss · Python, PostgreSQL, XGBoost, scikit-learn · Static site with Observable Plot ·
+    <a href="https://github.com/mishareiss/nba-impact-model">Source</a> · <span id="exported"></span>
+  </footer>
+
+  <script src="vendor/d3.min.js"></script>
+  <script src="vendor/plot.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
